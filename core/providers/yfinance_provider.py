@@ -85,22 +85,28 @@ def _extract_ohlcv(df, ticker=None):
 
 
 class YFinanceProvider(DataProvider):
-    def _safe_get_info(self, ticker, max_retries=3, retry_delay=2):
-        """Safely get ticker info with retry logic for rate limits"""
+    def _safe_yfinance_call(self, func, ticker, max_retries=3, retry_delay=2, *args, **kwargs):
+        """Safely call yfinance methods with retry logic for rate limits"""
         for attempt in range(max_retries):
             try:
-                ticker_obj = yf.Ticker(ticker)
-                info = ticker_obj.info
-                if info and isinstance(info, dict) and len(info) > 0:
-                    return info
-                # If info is empty or invalid, wait and retry
+                result = func(*args, **kwargs)
+                # Check if result is valid (not empty dict/list/None)
+                if result is not None:
+                    if isinstance(result, dict) and len(result) > 0:
+                        return result
+                    elif isinstance(result, list):
+                        return result
+                    elif not isinstance(result, dict):  # DataFrames, etc.
+                        return result
+                # If result is empty, wait and retry
                 if attempt < max_retries - 1:
-                    logger.warning(f"Empty info for {ticker}, retrying in {retry_delay}s...")
+                    logger.warning(f"Empty result for {ticker}, retrying in {retry_delay}s...")
                     time.sleep(retry_delay)
             except Exception as e:
                 error_msg = str(e).lower()
+                error_str = str(e)
                 # Check for rate limit errors
-                if "429" in error_msg or "too many requests" in error_msg or "rate limit" in error_msg:
+                if "429" in error_str or "too many requests" in error_msg or "rate limit" in error_msg:
                     if attempt < max_retries - 1:
                         wait_time = retry_delay * (attempt + 1)  # Exponential backoff
                         logger.warning(f"Rate limit hit for {ticker}, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
@@ -109,7 +115,7 @@ class YFinanceProvider(DataProvider):
                     else:
                         logger.error(f"Rate limit exceeded for {ticker} after {max_retries} attempts")
                         raise Exception(f"Yahoo Finance rate limit exceeded. Please try again in a few minutes.")
-                elif "json" in error_msg.lower() or "decode" in error_msg.lower():
+                elif "json" in error_msg.lower() or "decode" in error_msg.lower() or "expecting value" in error_msg:
                     # JSON decode error often means rate limit
                     if attempt < max_retries - 1:
                         wait_time = retry_delay * (attempt + 1)
@@ -121,12 +127,20 @@ class YFinanceProvider(DataProvider):
                         raise Exception(f"Unable to fetch data for {ticker}. Yahoo Finance may be rate-limiting requests.")
                 else:
                     # Other errors, re-raise immediately
-                    logger.error(f"Error fetching info for {ticker}: {e}")
+                    logger.error(f"Error in yfinance call for {ticker}: {e}")
                     raise
         
         # If we get here, all retries failed
-        logger.error(f"Failed to get info for {ticker} after {max_retries} attempts")
+        logger.error(f"Failed yfinance call for {ticker} after {max_retries} attempts")
         return {}
+    
+    def _safe_get_info(self, ticker, max_retries=3, retry_delay=2):
+        """Safely get ticker info with retry logic for rate limits"""
+        def _get_info():
+            ticker_obj = yf.Ticker(ticker)
+            return ticker_obj.info or {}
+        
+        return self._safe_yfinance_call(_get_info, ticker, max_retries, retry_delay)
     
     def get_ticker_context(self, ticker):
         try:
@@ -238,7 +252,11 @@ class YFinanceProvider(DataProvider):
         return points
 
     def get_fundamentals(self, ticker):
-        info = yf.Ticker(ticker).info or {}
+        try:
+            info = self._safe_get_info(ticker)
+        except Exception as e:
+            logger.error(f"Error getting fundamentals for {ticker}: {e}")
+            info = {}
         
         # Calculate PEG ratio if we have the data
         pe = info.get("trailingPE")
@@ -302,12 +320,23 @@ class YFinanceProvider(DataProvider):
         }
 
     def get_financial_statements(self, ticker):
-        yf_ticker = yf.Ticker(ticker)
-        return {
-            "income_statement": _df_to_dict(yf_ticker.financials),
-            "balance_sheet": _df_to_dict(yf_ticker.balance_sheet),
-            "cash_flow": _df_to_dict(yf_ticker.cashflow),
-        }
+        def _get_statements():
+            yf_ticker = yf.Ticker(ticker)
+            return {
+                "income_statement": _df_to_dict(yf_ticker.financials),
+                "balance_sheet": _df_to_dict(yf_ticker.balance_sheet),
+                "cash_flow": _df_to_dict(yf_ticker.cashflow),
+            }
+        
+        try:
+            return self._safe_yfinance_call(_get_statements, ticker)
+        except Exception as e:
+            logger.error(f"Error getting financial statements for {ticker}: {e}")
+            return {
+                "income_statement": {},
+                "balance_sheet": {},
+                "cash_flow": {},
+            }
 
     def get_news(self, ticker, start, end):
         """Fetch news from Finnhub (primary) with yfinance fallback."""
@@ -325,7 +354,13 @@ class YFinanceProvider(DataProvider):
         
         # Fallback to yfinance
         logger.info(f"news: Using yfinance fallback for {ticker}")
-        news = yf.Ticker(ticker).news or []
+        try:
+            def _get_news():
+                return yf.Ticker(ticker).news or []
+            news = self._safe_yfinance_call(_get_news, ticker)
+        except Exception as e:
+            logger.error(f"Error getting news for {ticker}: {e}")
+            news = []
         for item in news[:10]:
             content = item.get("content", item)
             title = content.get("title") or item.get("title") or "Untitled"
@@ -405,7 +440,11 @@ class YFinanceProvider(DataProvider):
 
     def get_peers(self, ticker):
         """Get peer tickers with multiple fallback strategies."""
-        info = yf.Ticker(ticker).info or {}
+        try:
+            info = self._safe_get_info(ticker)
+        except Exception as e:
+            logger.error(f"Error getting peers for {ticker}: {e}")
+            info = {}
         
         # Strategy 1: Use yfinance similarTickers
         peers = info.get("similarTickers") or []
@@ -433,12 +472,23 @@ class YFinanceProvider(DataProvider):
         return []
 
     def get_sector_etf(self, ticker):
-        info = yf.Ticker(ticker).info or {}
+        try:
+            info = self._safe_get_info(ticker)
+        except Exception as e:
+            logger.error(f"Error getting sector ETF for {ticker}: {e}")
+            info = {}
         sector = info.get("sector")
         return SECTOR_ETF_MAP.get(sector, DEFAULT_BENCHMARK)
 
     def get_earnings(self, ticker):
-        calendar = yf.Ticker(ticker).calendar
+        def _get_calendar():
+            return yf.Ticker(ticker).calendar
+        
+        try:
+            calendar = self._safe_yfinance_call(_get_calendar, ticker)
+        except Exception as e:
+            logger.error(f"Error getting earnings for {ticker}: {e}")
+            calendar = None
         next_date = None
         if calendar:
             if hasattr(calendar, "empty"):
