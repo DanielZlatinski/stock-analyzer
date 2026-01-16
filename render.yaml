@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: stock-analyzer
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn wsgi:application
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: FINNHUB_API_KEY
+        value: d5l1bthr01qt47mg4io0d5l1bthr01qt47mg4iog
