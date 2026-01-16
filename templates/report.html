@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ snapshot.context.company_name }} Research Report</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        margin: 0;
+        background: #0b1220;
+        color: #e6e9ef;
+      }
+      .page {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 32px 24px 60px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+      .badge {
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: #1e2a44;
+        font-size: 0.8rem;
+        height: fit-content;
+      }
+      .card {
+        background: #141c2f;
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+      }
+      .label {
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        opacity: 0.7;
+        margin-bottom: 4px;
+      }
+      img {
+        width: 100%;
+        border-radius: 12px;
+        background: #0f1729;
+        border: 1px solid #223154;
+      }
+      .section-title {
+        margin-top: 28px;
+        font-size: 1.2rem;
+      }
+      ul {
+        margin: 8px 0 0 18px;
+      }
+      .footer {
+        margin-top: 24px;
+        font-size: 0.85rem;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="header">
+        <div>
+          <h1>{{ snapshot.context.company_name }} ({{ snapshot.context.ticker }})</h1>
+          <p>{{ snapshot.context.sector or "N/A" }} · {{ snapshot.context.industry or "N/A" }}</p>
+          <p>Generated: {{ generated_at }}</p>
+        </div>
+        <div class="badge">Informational only — Not financial advice</div>
+      </div>
+
+      <div class="card grid">
+        <div>
+          <div class="label">Recommendation</div>
+          <strong>{{ analysis.recommendation.rating }}</strong>
+        </div>
+        <div>
+          <div class="label">Score</div>
+          <strong>{{ analysis.recommendation.score }}</strong>
+        </div>
+        <div>
+          <div class="label">Confidence</div>
+          <strong>{{ analysis.recommendation.confidence }}</strong>
+        </div>
+        <div>
+          <div class="label">Data Completeness</div>
+          <strong>{{ snapshot.completeness.overall_percent }}%</strong>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="label">Top Drivers</div>
+        <ul>
+          {% for item in analysis.recommendation.positives %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+        <div class="label">Key Risks</div>
+        <ul>
+          {% for item in analysis.recommendation.risks %}
+            <li>{{ item }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+      <h2 class="section-title">Price & Performance</h2>
+      <div class="card">
+        {% if charts.price %}
+          <img src="data:image/png;base64,{{ charts.price }}" alt="Price chart" />
+        {% endif %}
+      </div>
+      <div class="card">
+        {% if charts.relative %}
+          <img src="data:image/png;base64,{{ charts.relative }}" alt="Relative performance" />
+        {% endif %}
+      </div>
+
+      <h2 class="section-title">Fundamentals</h2>
+      <div class="card">
+        {% if charts.fundamentals %}
+          <img src="data:image/png;base64,{{ charts.fundamentals }}" alt="Fundamentals trend" />
+        {% endif %}
+      </div>
+
+      <h2 class="section-title">Peers & Sentiment</h2>
+      <div class="card">
+        {% if charts.peers %}
+          <img src="data:image/png;base64,{{ charts.peers }}" alt="Peer comparison" />
+        {% endif %}
+      </div>
+      <div class="card">
+        {% if charts.sentiment %}
+          <img src="data:image/png;base64,{{ charts.sentiment }}" alt="Sentiment" />
+        {% endif %}
+      </div>
+
+      <div class="footer">
+        Data sources: yfinance (prices, fundamentals), cached snapshots. Not investment advice.
+      </div>
+    </div>
+  </body>
+</html>

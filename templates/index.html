@@ -1,0 +1,1556 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Equity Research Terminal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero">
+        <div>
+          <h1>Equity Research Terminal</h1>
+          <p>Professional-grade stock analysis with multi-factor context.</p>
+        </div>
+        <div class="badge">Informational only — Not financial advice</div>
+      </header>
+
+      <section class="card">
+        <form method="POST" class="form">
+          <div class="field">
+            <label for="ticker">Stock Ticker</label>
+            <input
+              id="ticker"
+              name="ticker"
+              type="text"
+              placeholder="e.g. AAPL"
+              value="{{ ticker or '' }}"
+              autocomplete="off"
+              required
+            />
+          </div>
+          <div class="field">
+            <label for="horizon">Horizon</label>
+            <select id="horizon" name="horizon">
+              {% for value in ["1d","1w","1m","3m","1y","5y"] %}
+                <option value="{{ value }}" {% if value == horizon %}selected{% endif %}>
+                  {{ value|upper }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="interval">Interval</label>
+            <select id="interval" name="interval">
+              {% for value in ["1d","1wk"] %}
+                <option value="{{ value }}" {% if value == interval %}selected{% endif %}>
+                  {{ value }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="actions">
+            <button type="submit">Run Analysis</button>
+          </div>
+        </form>
+
+        {% if error %}
+          <p class="error">{{ error }}</p>
+        {% endif %}
+      </section>
+
+      {% if snapshot %}
+        <section class="card">
+          <div class="overview-grid">
+            <div>
+              <h2>{{ snapshot.context.company_name }} ({{ ticker }})</h2>
+              <p class="subtle">
+                {{ snapshot.context.sector or "N/A" }} · {{ snapshot.context.industry or "N/A" }}
+              </p>
+            </div>
+            <div>
+              <p class="label">Benchmark</p>
+              <strong>{{ snapshot.context.benchmark }}</strong>
+            </div>
+            <div>
+              <p class="label">Data Completeness</p>
+              <strong>{{ snapshot.completeness.overall_percent }}%</strong>
+            </div>
+            <div>
+              <p class="label">Next Earnings</p>
+              <strong>{{ snapshot.earnings.next_earnings_date or "N/A" }}</strong>
+            </div>
+          </div>
+          <div class="meta">
+            <div>
+              <p class="label">Last Updated</p>
+              <span>{{ snapshot.last_updated.prices or "N/A" }}</span>
+            </div>
+            <div>
+              <p class="label">Peers</p>
+              <span>{{ snapshot.peers | join(", ") if snapshot.peers else "N/A" }}</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="tabs">
+          <button class="tab active" data-target="overview">Overview</button>
+          <button class="tab" data-target="technicals">Technicals</button>
+          <button class="tab" data-target="fundamentals">Fundamentals</button>
+          <button class="tab" data-target="valuation">Valuation</button>
+          <button class="tab" data-target="peers">Peers/Sector</button>
+          <button class="tab" data-target="news">News/Sentiment</button>
+          <button class="tab" data-target="risk">Risk</button>
+        </section>
+
+        <section class="tab-panel active" id="overview">
+          <!-- Main Recommendation Banner -->
+          <div class="recommendation-banner {{ analysis.recommendation.rating | lower }}">
+            <div class="banner-content">
+              <div class="banner-main">
+                <div class="verdict-badge {{ analysis.recommendation.rating | lower }}">
+                  {{ analysis.recommendation.rating }}
+                </div>
+                <div class="verdict-score">
+                  <span class="score-number">{{ analysis.recommendation.score | round(0) }}</span>
+                  <span class="score-label">/ 100</span>
+                </div>
+              </div>
+              <div class="banner-details">
+                <p class="verdict-description">{{ analysis.recommendation.rating_description }}</p>
+                <div class="confidence-badge {{ analysis.recommendation.confidence | lower }}">
+                  Confidence: {{ analysis.recommendation.confidence }}
+                </div>
+              </div>
+            </div>
+            <div class="score-bar-container">
+              <div class="score-bar">
+                <div class="score-fill" style="width: {{ analysis.recommendation.score }}%;"></div>
+                <div class="score-marker" style="left: {{ analysis.recommendation.score }}%;"></div>
+              </div>
+              <div class="score-zones">
+                <span class="zone avoid">Avoid 0-44</span>
+                <span class="zone watch">Watch 45-69</span>
+                <span class="zone invest">Invest 70-100</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Factor Breakdown Grid -->
+          <div class="factors-section">
+            <h3 class="section-title">Factor Analysis
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Each factor contributes to the final score based on its weight. Green indicates positive (>60), red indicates negative (<40), gray is neutral. Click any card for details.</span>
+              </span>
+            </h3>
+            <div class="factors-grid">
+              {% if analysis.recommendation.factor_details %}
+              {% set factors = [
+                ("technical", "Technical", "20%", "Technicals"),
+                ("fundamental", "Fundamentals", "25%", "Fundamentals"),
+                ("valuation", "Valuation", "20%", "Valuation"),
+                ("risk", "Risk", "15%", "Risk"),
+                ("sentiment", "Sentiment", "10%", "News/Sentiment"),
+                ("momentum", "Momentum", "10%", "Technicals")
+              ] %}
+              {% for key, name, weight, tab in factors %}
+              {% set details = analysis.recommendation.factor_details.get(key, {}) %}
+              {% set score = analysis.recommendation.factor_scores.get(key, 50) %}
+              {% set signal = details.get('signal', 'neutral') %}
+              <div class="factor-card {{ signal }}" onclick="switchToTab('{{ tab | lower }}')">
+                <div class="factor-header">
+                  <span class="factor-name">{{ name }}</span>
+                  <span class="factor-weight">{{ weight }}</span>
+                </div>
+                <div class="factor-score-row">
+                  <div class="factor-score {{ signal }}">{{ score | round(0) }}</div>
+                  <div class="factor-bar">
+                    <div class="factor-fill {{ signal }}" style="width: {{ score }}%;"></div>
+                  </div>
+                </div>
+                <div class="factor-signal {{ signal }}">
+                  {% if signal == 'positive' %}Positive{% elif signal == 'negative' %}Negative{% else %}Neutral{% endif %}
+                </div>
+                <p class="factor-explanation">{{ details.get('explanation', 'No data available') | truncate(70) }}</p>
+              </div>
+              {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Score Waterfall Chart -->
+          <div class="chart-card chart-with-info">
+            <span class="chart-info-icon" title="How this is calculated">ⓘ
+              <span class="chart-info-tooltip">
+                <strong>Score Contribution Waterfall</strong><br><br>
+                Shows how each factor adds to the final score. The height of each bar represents its weighted contribution. Taller bars have more impact on the final recommendation.
+              </span>
+            </span>
+            {{ charts.recommendation | safe }}
+          </div>
+
+          <!-- Key Insights Row -->
+          <div class="insights-row">
+            <div class="insight-box positive">
+              <h4>Key Strengths</h4>
+              <ul>
+                {% for item in analysis.recommendation.positives %}
+                <li>{{ item }}</li>
+                {% endfor %}
+                {% if not analysis.recommendation.positives %}
+                <li class="none">No major strengths identified</li>
+                {% endif %}
+              </ul>
+            </div>
+            <div class="insight-box negative">
+              <h4>Risks & Concerns</h4>
+              <ul>
+                {% for item in analysis.recommendation.risks %}
+                <li>{{ item }}</li>
+                {% endfor %}
+                {% if not analysis.recommendation.risks %}
+                <li class="none">No major risks identified</li>
+                {% endif %}
+              </ul>
+            </div>
+            <div class="insight-box neutral">
+              <h4>What Would Change Rating</h4>
+              <ul>
+                {% for item in analysis.recommendation.triggers %}
+                <li>{{ item }}</li>
+                {% endfor %}
+                {% if not analysis.recommendation.triggers %}
+                <li class="none">Rating is well-supported by current data</li>
+                {% endif %}
+              </ul>
+            </div>
+          </div>
+
+          <!-- Quick Stats Summary -->
+          <div class="quick-stats-section">
+            <h3 class="section-title">Key Metrics</h3>
+            <div class="quick-stats-grid">
+              <div class="quick-stat">
+                <span class="qs-label">Price</span>
+                <span class="qs-value">${{ analysis.fundamentals.valuation.current_price | round(2) if analysis.fundamentals.valuation.current_price else "N/A" }}</span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">P/E</span>
+                <span class="qs-value">{{ analysis.fundamentals.valuation.pe_ratio | round(1) if analysis.fundamentals.valuation.pe_ratio else "N/A" }}</span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">Revenue Growth</span>
+                <span class="qs-value {% if analysis.fundamentals.growth.revenue_growth and analysis.fundamentals.growth.revenue_growth > 0 %}positive{% elif analysis.fundamentals.growth.revenue_growth %}negative{% endif %}">
+                  {{ (analysis.fundamentals.growth.revenue_growth * 100) | round(1) if analysis.fundamentals.growth.revenue_growth else "N/A" }}{% if analysis.fundamentals.growth.revenue_growth %}%{% endif %}
+                </span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">ROE</span>
+                <span class="qs-value">{{ (analysis.fundamentals.profitability.roe * 100) | round(1) if analysis.fundamentals.profitability.roe else "N/A" }}{% if analysis.fundamentals.profitability.roe %}%{% endif %}</span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">Beta</span>
+                <span class="qs-value">{{ analysis.risk.beta | round(2) if analysis.risk.beta else "N/A" }}</span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">52W Return</span>
+                <span class="qs-value {% if analysis.price.total_return and analysis.price.total_return > 0 %}positive{% elif analysis.price.total_return %}negative{% endif %}">
+                  {{ (analysis.price.total_return * 100) | round(1) if analysis.price.total_return else "N/A" }}{% if analysis.price.total_return %}%{% endif %}
+                </span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">Analyst Target</span>
+                <span class="qs-value">${{ analysis.fundamentals.valuation.target_mean_price | round(2) if analysis.fundamentals.valuation.target_mean_price else "N/A" }}</span>
+              </div>
+              <div class="quick-stat">
+                <span class="qs-label">News Sentiment</span>
+                <span class="qs-value {{ analysis.sentiment.overall_sentiment | lower }}">{{ analysis.sentiment.overall_sentiment }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Price Charts -->
+          <div class="chart-grid">
+            <div class="chart-card">
+              {{ charts.price | safe }}
+              {% if chart_insights.price %}
+              <div class="chart-notes">
+                <p class="chart-summary">{{ chart_insights.price.summary }}</p>
+                <p class="{{ chart_insights.price.signal_class }}">{{ chart_insights.price.impact }}</p>
+              </div>
+              {% endif %}
+            </div>
+            <div class="chart-card">
+              {{ charts.relative | safe }}
+              {% if chart_insights.relative %}
+              <div class="chart-notes">
+                <p class="chart-summary">{{ chart_insights.relative.summary }}</p>
+                <p class="{{ chart_insights.relative.signal_class }}">{{ chart_insights.relative.impact }}</p>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="technicals">
+          <!-- Trend Summary -->
+          <div class="tech-summary-box">
+            <div class="tech-summary-header">
+              <div>
+                <p class="label">Technical Trend
+                  <span class="info-icon">ⓘ
+                    <span class="info-tooltip">Overall technical trend based on price position relative to moving averages and momentum indicators. Bullish when price is above key MAs with positive momentum; Bearish when below with negative momentum.</span>
+                  </span>
+                </p>
+                <h3 class="tech-verdict {{ analysis.technicals.trend_by_horizon.get('1m', 'neutral') | lower }}">
+                  {{ analysis.technicals.trend_by_horizon.get("1m", "Neutral") | title }}
+                </h3>
+              </div>
+              <div class="trend-horizons">
+                <div class="horizon-item">
+                  <span class="horizon-label">1W</span>
+                  <span class="horizon-value {{ analysis.technicals.trend_by_horizon.get('1w', 'neutral') | lower }}">{{ analysis.technicals.trend_by_horizon.get("1w", "—") | title }}</span>
+                </div>
+                <div class="horizon-item">
+                  <span class="horizon-label">1M</span>
+                  <span class="horizon-value {{ analysis.technicals.trend_by_horizon.get('1m', 'neutral') | lower }}">{{ analysis.technicals.trend_by_horizon.get("1m", "—") | title }}</span>
+                </div>
+                <div class="horizon-item">
+                  <span class="horizon-label">3M</span>
+                  <span class="horizon-value {{ analysis.technicals.trend_by_horizon.get('3m', 'neutral') | lower }}">{{ analysis.technicals.trend_by_horizon.get("3m", "—") | title }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Charts -->
+          <div class="chart-grid">
+            <div class="chart-card chart-with-info">
+              <span class="chart-info-icon">ⓘ
+                <span class="chart-info-tooltip">
+                  <strong>Volume Analysis</strong><br><br>
+                  Shows daily trading volume (shares traded). High volume on up days confirms bullish moves; high volume on down days confirms bearish pressure. Volume spikes often precede significant price moves.
+                </span>
+              </span>
+              {{ charts.volume | safe }}
+              {% if chart_insights.volume %}
+              <div class="chart-notes">
+                <p class="chart-summary">{{ chart_insights.volume.summary }}</p>
+                <p class="{{ chart_insights.volume.signal_class }}">{{ chart_insights.volume.impact }}</p>
+              </div>
+              {% endif %}
+            </div>
+            <div class="chart-card chart-with-info">
+              <span class="chart-info-icon">ⓘ
+                <span class="chart-info-tooltip">
+                  <strong>Rolling Volatility (20-day)</strong><br><br>
+                  Measures price fluctuation intensity. Higher volatility means larger price swings and more risk. Volatility often increases before major moves and decreases during consolidation.
+                </span>
+              </span>
+              {{ charts.volatility | safe }}
+              {% if chart_insights.volatility %}
+              <div class="chart-notes">
+                <p class="chart-summary">{{ chart_insights.volatility.summary }}</p>
+                <p class="{{ chart_insights.volatility.signal_class }}">{{ chart_insights.volatility.impact }}</p>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+
+          <!-- Moving Averages Section -->
+          <div class="tech-section">
+            <h3 class="section-title">Moving Averages
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Moving averages smooth price data to show trends. Price above MA = bullish, below = bearish. The 200-day MA is key for long-term trend; 50-day for intermediate; 20-day for short-term. "Golden cross" (50 above 200) is bullish; "Death cross" is bearish.</span>
+              </span>
+            </h3>
+            <div class="ma-grid">
+              {% set current_price = analysis.fundamentals.valuation.current_price %}
+              <div class="ma-card {% if current_price and analysis.technicals.ma_20 and current_price > analysis.technicals.ma_20 %}bullish{% elif current_price and analysis.technicals.ma_20 %}bearish{% endif %}">
+                <p class="label">20-Day MA</p>
+                <strong>${{ analysis.technicals.ma_20 | round(2) if analysis.technicals.ma_20 else "N/A" }}</strong>
+                {% if current_price and analysis.technicals.ma_20 %}
+                <span class="ma-status">Price {{ "above" if current_price > analysis.technicals.ma_20 else "below" }}</span>
+                {% endif %}
+              </div>
+              <div class="ma-card {% if current_price and analysis.technicals.ma_50 and current_price > analysis.technicals.ma_50 %}bullish{% elif current_price and analysis.technicals.ma_50 %}bearish{% endif %}">
+                <p class="label">50-Day MA</p>
+                <strong>${{ analysis.technicals.ma_50 | round(2) if analysis.technicals.ma_50 else "N/A" }}</strong>
+                {% if current_price and analysis.technicals.ma_50 %}
+                <span class="ma-status">Price {{ "above" if current_price > analysis.technicals.ma_50 else "below" }}</span>
+                {% endif %}
+              </div>
+              <div class="ma-card {% if current_price and analysis.technicals.ma_200 and current_price > analysis.technicals.ma_200 %}bullish{% elif current_price and analysis.technicals.ma_200 %}bearish{% endif %}">
+                <p class="label">200-Day MA</p>
+                <strong>${{ analysis.technicals.ma_200 | round(2) if analysis.technicals.ma_200 else "N/A" }}</strong>
+                {% if current_price and analysis.technicals.ma_200 %}
+                <span class="ma-status">Price {{ "above" if current_price > analysis.technicals.ma_200 else "below" }}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Momentum Indicators -->
+          <div class="tech-section">
+            <h3 class="section-title">Momentum Indicators
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Momentum indicators measure speed and strength of price moves. RSI shows overbought (>70) or oversold (<30) conditions. MACD shows trend direction and momentum shifts. These help identify potential reversal points.</span>
+              </span>
+            </h3>
+            <div class="momentum-grid">
+              <!-- RSI -->
+              <div class="momentum-card">
+                <div class="momentum-header">
+                  <p class="label">RSI (14)
+                    <span class="info-icon">ⓘ
+                      <span class="info-tooltip">Relative Strength Index measures momentum on a 0-100 scale. Above 70 = overbought (potential sell signal). Below 30 = oversold (potential buy signal). 50 is neutral.</span>
+                    </span>
+                  </p>
+                  <strong class="momentum-value {% if analysis.technicals.rsi_14 and analysis.technicals.rsi_14 > 70 %}overbought{% elif analysis.technicals.rsi_14 and analysis.technicals.rsi_14 < 30 %}oversold{% endif %}">
+                    {{ analysis.technicals.rsi_14 | round(1) if analysis.technicals.rsi_14 else "N/A" }}
+                  </strong>
+                </div>
+                {% if analysis.technicals.rsi_14 %}
+                <div class="rsi-bar-container">
+                  <div class="rsi-zones">
+                    <span class="zone oversold">Oversold</span>
+                    <span class="zone neutral">Neutral</span>
+                    <span class="zone overbought">Overbought</span>
+                  </div>
+                  <div class="rsi-bar">
+                    <div class="rsi-marker" style="left: {{ analysis.technicals.rsi_14 }}%;"></div>
+                  </div>
+                  <div class="rsi-labels">
+                    <span>0</span>
+                    <span>30</span>
+                    <span>50</span>
+                    <span>70</span>
+                    <span>100</span>
+                  </div>
+                </div>
+                <p class="momentum-interpretation">
+                  {% if analysis.technicals.rsi_14 > 70 %}
+                  <span class="signal-negative">Overbought — potential pullback ahead</span>
+                  {% elif analysis.technicals.rsi_14 < 30 %}
+                  <span class="signal-positive">Oversold — potential bounce ahead</span>
+                  {% elif analysis.technicals.rsi_14 > 50 %}
+                  <span class="signal-neutral">Bullish momentum, not yet overbought</span>
+                  {% else %}
+                  <span class="signal-neutral">Bearish momentum, not yet oversold</span>
+                  {% endif %}
+                </p>
+                {% endif %}
+              </div>
+
+              <!-- MACD -->
+              <div class="momentum-card">
+                <div class="momentum-header">
+                  <p class="label">MACD
+                    <span class="info-icon">ⓘ
+                      <span class="info-tooltip">Moving Average Convergence Divergence. MACD above signal line = bullish. Below = bearish. Crossovers signal momentum shifts. Histogram shows strength of trend.</span>
+                    </span>
+                  </p>
+                </div>
+                <div class="macd-values">
+                  <div>
+                    <span class="macd-label">MACD Line</span>
+                    <strong class="{% if analysis.technicals.macd and analysis.technicals.macd > 0 %}positive{% elif analysis.technicals.macd %}negative{% endif %}">
+                      {{ analysis.technicals.macd | round(3) if analysis.technicals.macd else "N/A" }}
+                    </strong>
+                  </div>
+                  <div>
+                    <span class="macd-label">Signal Line</span>
+                    <strong>{{ analysis.technicals.macd_signal | round(3) if analysis.technicals.macd_signal else "N/A" }}</strong>
+                  </div>
+                  <div>
+                    <span class="macd-label">Histogram</span>
+                    {% set histogram = (analysis.technicals.macd - analysis.technicals.macd_signal) if analysis.technicals.macd and analysis.technicals.macd_signal else none %}
+                    <strong class="{% if histogram and histogram > 0 %}positive{% elif histogram %}negative{% endif %}">
+                      {{ histogram | round(3) if histogram else "N/A" }}
+                    </strong>
+                  </div>
+                </div>
+                {% if analysis.technicals.macd and analysis.technicals.macd_signal %}
+                <p class="momentum-interpretation">
+                  {% if analysis.technicals.macd > analysis.technicals.macd_signal %}
+                  <span class="signal-positive">Bullish — MACD above signal line</span>
+                  {% else %}
+                  <span class="signal-negative">Bearish — MACD below signal line</span>
+                  {% endif %}
+                </p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Bollinger Bands -->
+          <div class="tech-section">
+            <h3 class="section-title">Bollinger Bands
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Bollinger Bands show volatility channels around price. Price near upper band may be overbought; near lower band may be oversold. Band width indicates volatility — narrow bands often precede breakouts.</span>
+              </span>
+            </h3>
+            <div class="bollinger-grid">
+              <div class="bollinger-card">
+                <p class="label">Upper Band</p>
+                <strong>${{ analysis.technicals.bollinger_upper | round(2) if analysis.technicals.bollinger_upper else "N/A" }}</strong>
+              </div>
+              <div class="bollinger-card current">
+                <p class="label">Current Price</p>
+                <strong>${{ current_price | round(2) if current_price else "N/A" }}</strong>
+              </div>
+              <div class="bollinger-card">
+                <p class="label">Lower Band</p>
+                <strong>${{ analysis.technicals.bollinger_lower | round(2) if analysis.technicals.bollinger_lower else "N/A" }}</strong>
+              </div>
+            </div>
+            {% if current_price and analysis.technicals.bollinger_upper and analysis.technicals.bollinger_lower %}
+            {% set band_width = analysis.technicals.bollinger_upper - analysis.technicals.bollinger_lower %}
+            {% set price_position = (current_price - analysis.technicals.bollinger_lower) / band_width if band_width > 0 else 0.5 %}
+            <div class="bollinger-visual">
+              <div class="bollinger-bar">
+                <div class="bollinger-marker" style="left: {{ (price_position * 100) | round(0) }}%;"></div>
+              </div>
+              <p class="bollinger-interpretation">
+                {% if price_position > 0.8 %}
+                <span class="signal-negative">Price near upper band — potentially overbought</span>
+                {% elif price_position < 0.2 %}
+                <span class="signal-positive">Price near lower band — potentially oversold</span>
+                {% else %}
+                <span class="signal-neutral">Price within normal range</span>
+                {% endif %}
+              </p>
+            </div>
+            {% endif %}
+          </div>
+        </section>
+
+        <section class="tab-panel" id="fundamentals">
+          <!-- Financial Trends Chart -->
+          <div class="chart-card chart-with-info">
+            <span class="chart-info-icon">ⓘ
+              <span class="chart-info-tooltip">
+                <strong>Financial Trends</strong><br><br>
+                Historical trends of key financial metrics over recent years. Look for:<br>
+                • Consistent revenue growth (blue line)<br>
+                • Expanding net income (red line)<br>
+                • Growing free cash flow (purple line)<br><br>
+                Divergence between revenue and income may indicate margin pressure.
+              </span>
+            </span>
+            {{ charts.fundamentals | safe }}
+            {% if chart_insights.fundamentals %}
+            <div class="chart-notes">
+              <p class="chart-summary">{{ chart_insights.fundamentals.summary }}</p>
+              <p class="{{ chart_insights.fundamentals.signal_class }}">{{ chart_insights.fundamentals.impact }}</p>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- Profitability Section -->
+          <div class="fundamentals-section">
+            <h3 class="section-title">Profitability
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Profitability metrics show how efficiently the company converts revenue into profit. Higher margins indicate pricing power and operational efficiency. ROE shows how well shareholder capital is being used.</span>
+              </span>
+            </h3>
+            <div class="metric-cards-grid">
+              <div class="metric-card has-tooltip">
+                <p class="label">Gross Margin</p>
+                <strong class="{% if analysis.fundamentals.profitability.gross_margins and analysis.fundamentals.profitability.gross_margins > 0.4 %}positive{% elif analysis.fundamentals.profitability.gross_margins and analysis.fundamentals.profitability.gross_margins < 0.2 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.profitability.gross_margins * 100) | round(1) if analysis.fundamentals.profitability.gross_margins else "N/A" }}{% if analysis.fundamentals.profitability.gross_margins %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Revenue minus cost of goods sold, divided by revenue. Higher is better. Above 40% indicates strong pricing power.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Operating Margin</p>
+                <strong class="{% if analysis.fundamentals.profitability.operating_margins and analysis.fundamentals.profitability.operating_margins > 0.2 %}positive{% elif analysis.fundamentals.profitability.operating_margins and analysis.fundamentals.profitability.operating_margins < 0.1 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.profitability.operating_margins * 100) | round(1) if analysis.fundamentals.profitability.operating_margins else "N/A" }}{% if analysis.fundamentals.profitability.operating_margins %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Operating income divided by revenue. Shows operational efficiency. Above 20% is generally strong.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Profit Margin</p>
+                <strong class="{% if analysis.fundamentals.profitability.profit_margins and analysis.fundamentals.profitability.profit_margins > 0.15 %}positive{% elif analysis.fundamentals.profitability.profit_margins and analysis.fundamentals.profitability.profit_margins < 0.05 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.profitability.profit_margins * 100) | round(1) if analysis.fundamentals.profitability.profit_margins else "N/A" }}{% if analysis.fundamentals.profitability.profit_margins %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Net income divided by revenue. The bottom line profitability. Above 15% is excellent.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">ROE</p>
+                <strong class="{% if analysis.fundamentals.profitability.roe and analysis.fundamentals.profitability.roe > 0.15 %}positive{% elif analysis.fundamentals.profitability.roe and analysis.fundamentals.profitability.roe < 0.08 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.profitability.roe * 100) | round(1) if analysis.fundamentals.profitability.roe else "N/A" }}{% if analysis.fundamentals.profitability.roe %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Return on Equity measures profit generated per dollar of shareholder equity. Above 15% is generally considered strong.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">ROA</p>
+                <strong class="{% if analysis.fundamentals.profitability.roa and analysis.fundamentals.profitability.roa > 0.1 %}positive{% elif analysis.fundamentals.profitability.roa and analysis.fundamentals.profitability.roa < 0.03 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.profitability.roa * 100) | round(1) if analysis.fundamentals.profitability.roa else "N/A" }}{% if analysis.fundamentals.profitability.roa %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Return on Assets shows how efficiently assets generate profit. Above 10% is good for most industries.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Growth Section -->
+          <div class="fundamentals-section">
+            <h3 class="section-title">Growth
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Growth metrics show how fast the company is expanding. Revenue growth indicates market demand; earnings growth shows profitability scaling. Consistent double-digit growth is a positive sign.</span>
+              </span>
+            </h3>
+            <div class="metric-cards-grid">
+              <div class="metric-card has-tooltip">
+                <p class="label">Revenue Growth</p>
+                <strong class="{% if analysis.fundamentals.growth.revenue_growth and analysis.fundamentals.growth.revenue_growth > 0.1 %}positive{% elif analysis.fundamentals.growth.revenue_growth and analysis.fundamentals.growth.revenue_growth < 0 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.growth.revenue_growth * 100) | round(1) if analysis.fundamentals.growth.revenue_growth else "N/A" }}{% if analysis.fundamentals.growth.revenue_growth %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Year-over-year revenue growth. Above 10% indicates strong demand. Negative growth is a warning sign.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Earnings Growth</p>
+                <strong class="{% if analysis.fundamentals.growth.earnings_growth and analysis.fundamentals.growth.earnings_growth > 0.1 %}positive{% elif analysis.fundamentals.growth.earnings_growth and analysis.fundamentals.growth.earnings_growth < 0 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.growth.earnings_growth * 100) | round(1) if analysis.fundamentals.growth.earnings_growth else "N/A" }}{% if analysis.fundamentals.growth.earnings_growth %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Year-over-year earnings growth. Earnings growing faster than revenue indicates improving margins.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Quarterly Earnings</p>
+                <strong class="{% if analysis.fundamentals.growth.earnings_quarterly_growth and analysis.fundamentals.growth.earnings_quarterly_growth > 0.1 %}positive{% elif analysis.fundamentals.growth.earnings_quarterly_growth and analysis.fundamentals.growth.earnings_quarterly_growth < 0 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.growth.earnings_quarterly_growth * 100) | round(1) if analysis.fundamentals.growth.earnings_quarterly_growth else "N/A" }}{% if analysis.fundamentals.growth.earnings_quarterly_growth %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Most recent quarter earnings growth vs same quarter last year. Shows current momentum.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">FCF Growth (1Y)</p>
+                <strong class="{% if analysis.fundamentals.growth.fcf_growth_1y and analysis.fundamentals.growth.fcf_growth_1y > 0.1 %}positive{% elif analysis.fundamentals.growth.fcf_growth_1y and analysis.fundamentals.growth.fcf_growth_1y < 0 %}negative{% endif %}">
+                  {{ (analysis.fundamentals.growth.fcf_growth_1y * 100) | round(1) if analysis.fundamentals.growth.fcf_growth_1y else "N/A" }}{% if analysis.fundamentals.growth.fcf_growth_1y %}%{% endif %}
+                </strong>
+                <span class="cell-tooltip">Free Cash Flow growth. FCF is cash available after capital expenditures. Growing FCF funds dividends, buybacks, and expansion.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Balance Sheet Section -->
+          <div class="fundamentals-section">
+            <h3 class="section-title">Balance Sheet Health
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Balance sheet metrics show financial stability. Lower debt ratios mean less financial risk. Higher liquidity ratios mean better ability to meet short-term obligations. Strong cash position provides flexibility.</span>
+              </span>
+            </h3>
+            <div class="metric-cards-grid">
+              <div class="metric-card has-tooltip">
+                <p class="label">Debt/Equity</p>
+                <strong class="{% if analysis.fundamentals.balance_sheet.debt_to_equity and analysis.fundamentals.balance_sheet.debt_to_equity < 0.5 %}positive{% elif analysis.fundamentals.balance_sheet.debt_to_equity and analysis.fundamentals.balance_sheet.debt_to_equity > 2 %}negative{% endif %}">
+                  {{ analysis.fundamentals.balance_sheet.debt_to_equity | round(2) if analysis.fundamentals.balance_sheet.debt_to_equity else "N/A" }}
+                </strong>
+                <span class="cell-tooltip">Total debt divided by shareholder equity. Below 0.5 is conservative; above 2 indicates high leverage risk.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Current Ratio</p>
+                <strong class="{% if analysis.fundamentals.balance_sheet.current_ratio and analysis.fundamentals.balance_sheet.current_ratio > 1.5 %}positive{% elif analysis.fundamentals.balance_sheet.current_ratio and analysis.fundamentals.balance_sheet.current_ratio < 1 %}negative{% endif %}">
+                  {{ analysis.fundamentals.balance_sheet.current_ratio | round(2) if analysis.fundamentals.balance_sheet.current_ratio else "N/A" }}
+                </strong>
+                <span class="cell-tooltip">Current assets divided by current liabilities. Above 1.5 is healthy; below 1 may indicate liquidity issues.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Quick Ratio</p>
+                <strong class="{% if analysis.fundamentals.balance_sheet.quick_ratio and analysis.fundamentals.balance_sheet.quick_ratio > 1 %}positive{% elif analysis.fundamentals.balance_sheet.quick_ratio and analysis.fundamentals.balance_sheet.quick_ratio < 0.5 %}negative{% endif %}">
+                  {{ analysis.fundamentals.balance_sheet.quick_ratio | round(2) if analysis.fundamentals.balance_sheet.quick_ratio else "N/A" }}
+                </strong>
+                <span class="cell-tooltip">Liquid assets divided by current liabilities (excludes inventory). Above 1 is healthy.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Total Cash</p>
+                <strong>
+                  {% if analysis.fundamentals.balance_sheet.total_cash %}
+                  ${{ "{:,.0f}".format(analysis.fundamentals.balance_sheet.total_cash / 1e9) }}B
+                  {% else %}N/A{% endif %}
+                </strong>
+                <span class="cell-tooltip">Cash and cash equivalents on the balance sheet. Larger cash reserves provide financial flexibility.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Total Debt</p>
+                <strong>
+                  {% if analysis.fundamentals.balance_sheet.total_debt %}
+                  ${{ "{:,.0f}".format(analysis.fundamentals.balance_sheet.total_debt / 1e9) }}B
+                  {% else %}N/A{% endif %}
+                </strong>
+                <span class="cell-tooltip">Total short and long-term debt. Compare to cash and equity to assess leverage risk.</span>
+              </div>
+              <div class="metric-card has-tooltip">
+                <p class="label">Free Cash Flow</p>
+                <strong class="{% if analysis.fundamentals.balance_sheet.free_cash_flow and analysis.fundamentals.balance_sheet.free_cash_flow > 0 %}positive{% elif analysis.fundamentals.balance_sheet.free_cash_flow and analysis.fundamentals.balance_sheet.free_cash_flow < 0 %}negative{% endif %}">
+                  {% if analysis.fundamentals.balance_sheet.free_cash_flow %}
+                  ${{ "{:,.0f}".format(analysis.fundamentals.balance_sheet.free_cash_flow / 1e9) }}B
+                  {% else %}N/A{% endif %}
+                </strong>
+                <span class="cell-tooltip">Cash from operations minus capital expenditures. Positive FCF funds dividends, buybacks, and debt reduction.</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="valuation">
+          <!-- Valuation Assessment Box -->
+          {% if analysis.fundamentals.valuation.assessment %}
+          {% set assess = analysis.fundamentals.valuation.assessment %}
+          <div class="valuation-verdict-box {{ assess.verdict | lower | replace(' ', '-') }}">
+            <div class="verdict-header">
+              <div>
+                <p class="label">Valuation Assessment
+                  <span class="info-icon">ⓘ
+                    <span class="info-tooltip">This assessment analyzes multiple valuation metrics (P/E, PEG, EV/EBITDA, P/B) to determine if the stock appears undervalued, fairly valued, or trading at a premium. Each metric is scored and combined to produce an overall verdict. A higher score indicates more attractive valuation.</span>
+                  </span>
+                </p>
+                <h3 class="verdict-title">{{ assess.verdict }}</h3>
+              </div>
+              <div class="verdict-score">
+                <span class="score-value">{{ assess.score }}</span>
+                <span class="score-max">/ {{ assess.max_score }}</span>
+              </div>
+            </div>
+            <p class="verdict-detail">{{ assess.verdict_detail }}</p>
+            {% if assess.assessments %}
+            <div class="assessment-items">
+              {% for metric, status, detail in assess.assessments %}
+              <div class="assessment-item {{ status }}">
+                <span class="assessment-metric">{{ metric }}</span>
+                <span class="assessment-status">{{ status | title }}</span>
+                <span class="assessment-detail">{{ detail }}</span>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% endif %}
+
+          <!-- Price Context -->
+          <div class="valuation-section">
+            <h3 class="section-title">Price Context
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Shows where the current stock price sits relative to its 52-week trading range and key moving averages. Trading near the 52-week low may indicate a buying opportunity (or trouble), while near the high suggests momentum or potential overvaluation. The 50-day and 200-day averages help identify trend direction.</span>
+              </span>
+            </h3>
+            <div class="price-context-grid">
+              <div class="price-main">
+                <p class="label">Current Price</p>
+                <strong class="price-value">${{ analysis.fundamentals.valuation.current_price | round(2) if analysis.fundamentals.valuation.current_price else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">52-Week High</p>
+                <strong>${{ analysis.fundamentals.valuation.fifty_two_week_high | round(2) if analysis.fundamentals.valuation.fifty_two_week_high else "N/A" }}</strong>
+                {% if analysis.fundamentals.valuation.pct_from_52w_high %}
+                <span class="pct-change negative">({{ (analysis.fundamentals.valuation.pct_from_52w_high * 100) | round(1) }}%)</span>
+                {% endif %}
+              </div>
+              <div>
+                <p class="label">52-Week Low</p>
+                <strong>${{ analysis.fundamentals.valuation.fifty_two_week_low | round(2) if analysis.fundamentals.valuation.fifty_two_week_low else "N/A" }}</strong>
+                {% if analysis.fundamentals.valuation.pct_from_52w_low %}
+                <span class="pct-change positive">(+{{ (analysis.fundamentals.valuation.pct_from_52w_low * 100) | round(1) }}%)</span>
+                {% endif %}
+              </div>
+              <div>
+                <p class="label">50-Day Avg</p>
+                <strong>${{ analysis.fundamentals.valuation.fifty_day_average | round(2) if analysis.fundamentals.valuation.fifty_day_average else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">200-Day Avg</p>
+                <strong>${{ analysis.fundamentals.valuation.two_hundred_day_average | round(2) if analysis.fundamentals.valuation.two_hundred_day_average else "N/A" }}</strong>
+              </div>
+            </div>
+            {% if analysis.fundamentals.valuation.range_position_52w is not none %}
+            <div class="range-bar-section">
+              <p class="label">52-Week Range Position</p>
+              <div class="range-bar-outer">
+                <div class="range-bar-fill" style="width: {{ (analysis.fundamentals.valuation.range_position_52w * 100) | round(0) }}%;"></div>
+                <span class="range-marker" style="left: {{ (analysis.fundamentals.valuation.range_position_52w * 100) | round(0) }}%;"></span>
+              </div>
+              <div class="range-labels">
+                <span>Low</span>
+                <span>{{ (analysis.fundamentals.valuation.range_position_52w * 100) | round(0) }}% of range</span>
+                <span>High</span>
+              </div>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- Analyst Targets -->
+          {% if analysis.fundamentals.valuation.target_mean_price %}
+          <div class="valuation-section">
+            <h3 class="section-title">Analyst Price Targets
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Wall Street analyst consensus price targets and recommendations. The mean target represents the average expected price over 12 months. Upside/downside shows potential return if the target is reached. More analysts covering the stock generally means more reliable consensus. Ratings range from Strong Buy to Strong Sell.</span>
+              </span>
+            </h3>
+            <div class="analyst-grid">
+              <div class="target-main">
+                <p class="label">Mean Target</p>
+                <strong class="target-value">${{ analysis.fundamentals.valuation.target_mean_price | round(2) }}</strong>
+                {% if analysis.fundamentals.valuation.upside_to_target %}
+                <span class="upside {% if analysis.fundamentals.valuation.upside_to_target > 0 %}positive{% else %}negative{% endif %}">
+                  {% if analysis.fundamentals.valuation.upside_to_target > 0 %}+{% endif %}{{ (analysis.fundamentals.valuation.upside_to_target * 100) | round(1) }}% upside
+                </span>
+                {% endif %}
+              </div>
+              <div>
+                <p class="label">Target High</p>
+                <strong>${{ analysis.fundamentals.valuation.target_high_price | round(2) if analysis.fundamentals.valuation.target_high_price else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">Target Low</p>
+                <strong>${{ analysis.fundamentals.valuation.target_low_price | round(2) if analysis.fundamentals.valuation.target_low_price else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">Analysts</p>
+                <strong>{{ analysis.fundamentals.valuation.number_of_analysts or "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">Consensus</p>
+                <strong class="consensus-{{ analysis.fundamentals.valuation.recommendation_key or 'none' }}">{{ (analysis.fundamentals.valuation.recommendation_key or "N/A") | title }}</strong>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- Valuation Multiples -->
+          <div class="valuation-section">
+            <h3 class="section-title">Valuation Multiples
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Key ratios used to assess whether a stock is cheap or expensive. Lower multiples often suggest undervaluation, but must be compared to peers and growth rates. P/E measures price vs earnings, PEG adjusts for growth, EV/EBITDA is debt-adjusted, P/S works for unprofitable companies. Hover over each metric for details.</span>
+              </span>
+            </h3>
+            <div class="multiples-grid">
+              <div class="multiple-card has-tooltip">
+                <p class="label">P/E Ratio</p>
+                <strong>{{ analysis.fundamentals.valuation.pe_ratio | round(1) if analysis.fundamentals.valuation.pe_ratio else "—" }}</strong>
+                <span class="cell-tooltip">Price-to-Earnings: Stock price divided by earnings per share. Lower may indicate undervaluation.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">Forward P/E</p>
+                <strong>{{ analysis.fundamentals.valuation.forward_pe | round(1) if analysis.fundamentals.valuation.forward_pe else "—" }}</strong>
+                <span class="cell-tooltip">Forward P/E uses estimated future earnings. Lower than trailing P/E suggests expected earnings growth.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">PEG Ratio</p>
+                <strong>{{ analysis.fundamentals.valuation.peg_ratio | round(2) if analysis.fundamentals.valuation.peg_ratio else "—" }}</strong>
+                <span class="cell-tooltip">P/E divided by earnings growth rate. PEG below 1 suggests undervaluation relative to growth.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">Price/Sales</p>
+                <strong>{{ analysis.fundamentals.valuation.price_to_sales | round(2) if analysis.fundamentals.valuation.price_to_sales else "—" }}</strong>
+                <span class="cell-tooltip">Price-to-Sales: Market cap divided by revenue. Useful for unprofitable growth companies.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">Price/Book</p>
+                <strong>{{ analysis.fundamentals.valuation.price_to_book | round(2) if analysis.fundamentals.valuation.price_to_book else "—" }}</strong>
+                <span class="cell-tooltip">Price-to-Book: Market cap divided by book value. Below 1 may indicate undervaluation.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">EV/EBITDA</p>
+                <strong>{{ analysis.fundamentals.valuation.ev_to_ebitda | round(1) if analysis.fundamentals.valuation.ev_to_ebitda else "—" }}</strong>
+                <span class="cell-tooltip">Enterprise Value to EBITDA: Debt-adjusted valuation. Below 10 often considered attractive.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">EV/Revenue</p>
+                <strong>{{ analysis.fundamentals.valuation.ev_to_revenue | round(2) if analysis.fundamentals.valuation.ev_to_revenue else "—" }}</strong>
+                <span class="cell-tooltip">Enterprise Value to Revenue: Useful for comparing companies with different capital structures.</span>
+              </div>
+              <div class="multiple-card has-tooltip">
+                <p class="label">Market Cap</p>
+                <strong>{{ "${:,.0f}".format(analysis.fundamentals.valuation.market_cap / 1e9) if analysis.fundamentals.valuation.market_cap else "—" }}{% if analysis.fundamentals.valuation.market_cap %}B{% endif %}</strong>
+                <span class="cell-tooltip">Total market value of outstanding shares.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Dividend Info -->
+          {% if analysis.fundamentals.dividend and analysis.fundamentals.dividend.dividend_yield %}
+          <div class="valuation-section">
+            <h3 class="section-title">Dividend
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Dividend metrics for income investors. Yield shows annual return from dividends alone. Payout ratio indicates what percentage of earnings is paid out—too high (>80%) may be unsustainable. Compare current yield to 5-year average to see if the stock is relatively cheap or expensive for income.</span>
+              </span>
+            </h3>
+            <div class="stats-grid">
+              <div>
+                <p class="label">Dividend Yield</p>
+                <strong>{{ (analysis.fundamentals.dividend.dividend_yield * 100) | round(2) }}%</strong>
+              </div>
+              <div>
+                <p class="label">Annual Dividend</p>
+                <strong>${{ analysis.fundamentals.dividend.dividend_rate | round(2) if analysis.fundamentals.dividend.dividend_rate else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">Payout Ratio</p>
+                <strong>{{ (analysis.fundamentals.dividend.payout_ratio * 100) | round(1) if analysis.fundamentals.dividend.payout_ratio else "N/A" }}{% if analysis.fundamentals.dividend.payout_ratio %}%{% endif %}</strong>
+              </div>
+              <div>
+                <p class="label">5Y Avg Yield</p>
+                <strong>{{ analysis.fundamentals.dividend.five_year_avg_dividend_yield | round(2) if analysis.fundamentals.dividend.five_year_avg_dividend_yield else "N/A" }}{% if analysis.fundamentals.dividend.five_year_avg_dividend_yield %}%{% endif %}</strong>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          <!-- Per Share Data -->
+          {% if analysis.fundamentals.per_share %}
+          <div class="valuation-section">
+            <h3 class="section-title">Per Share Data
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Financial metrics expressed on a per-share basis. EPS (Earnings Per Share) shows profit attributable to each share—forward EPS higher than trailing indicates expected growth. Book value per share is the theoretical liquidation value. These are used to calculate valuation multiples like P/E and P/B.</span>
+              </span>
+            </h3>
+            <div class="stats-grid">
+              <div>
+                <p class="label">EPS (TTM)</p>
+                <strong>${{ analysis.fundamentals.per_share.eps_trailing | round(2) if analysis.fundamentals.per_share.eps_trailing else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">EPS (Forward)</p>
+                <strong>${{ analysis.fundamentals.per_share.eps_forward | round(2) if analysis.fundamentals.per_share.eps_forward else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">Book Value/Share</p>
+                <strong>${{ analysis.fundamentals.per_share.book_value | round(2) if analysis.fundamentals.per_share.book_value else "N/A" }}</strong>
+              </div>
+              <div>
+                <p class="label">Revenue/Share</p>
+                <strong>${{ analysis.fundamentals.per_share.revenue_per_share | round(2) if analysis.fundamentals.per_share.revenue_per_share else "N/A" }}</strong>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+        </section>
+
+        <section class="tab-panel" id="peers">
+          <div class="peers-header">
+            <div class="sector-info">
+              <p class="label">Sector</p>
+              <strong>{{ snapshot.context.sector or "N/A" }}</strong>
+            </div>
+            <div class="sector-info">
+              <p class="label">Industry</p>
+              <strong>{{ snapshot.context.industry or "N/A" }}</strong>
+            </div>
+            <div class="sector-info">
+              <p class="label">Sector ETF</p>
+              <strong>{{ snapshot.context.benchmark }}</strong>
+            </div>
+          </div>
+          
+          <div class="chart-card">
+            {{ charts.peers | safe }}
+            {% if chart_insights.peers %}
+            <div class="chart-notes">
+              <p class="chart-summary">{{ chart_insights.peers.summary }}</p>
+              <p class="{{ chart_insights.peers.signal_class }}">{{ chart_insights.peers.impact }}</p>
+            </div>
+            {% endif %}
+          </div>
+          
+          {% if analysis.peers.peer_metrics %}
+          {% set peer_pe_values = analysis.peers.peer_metrics | map(attribute='pe_ratio') | select('number') | list %}
+          {% set peer_fwd_pe_values = analysis.peers.peer_metrics | map(attribute='forward_pe') | select('number') | list %}
+          {% set peer_rev_values = analysis.peers.peer_metrics | map(attribute='revenue_growth') | select('number') | list %}
+          {% set peer_roe_values = analysis.peers.peer_metrics | map(attribute='roe') | select('number') | list %}
+          {% set peer_de_values = analysis.peers.peer_metrics | map(attribute='debt_to_equity') | select('number') | list %}
+          
+          {% set avg_pe = (peer_pe_values | sum / peer_pe_values | length) if peer_pe_values else none %}
+          {% set avg_fwd_pe = (peer_fwd_pe_values | sum / peer_fwd_pe_values | length) if peer_fwd_pe_values else none %}
+          {% set avg_rev = (peer_rev_values | sum / peer_rev_values | length) if peer_rev_values else none %}
+          {% set avg_roe = (peer_roe_values | sum / peer_roe_values | length) if peer_roe_values else none %}
+          {% set avg_de = (peer_de_values | sum / peer_de_values | length) if peer_de_values else none %}
+          
+          <div class="peer-table-container">
+            <h3>Peer Comparison Table</h3>
+            <p class="table-hint">Hover over values to see comparison insights</p>
+            <table class="peer-table">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th class="has-tooltip">P/E <span class="th-hint">ⓘ</span>
+                    <span class="col-tooltip">Price-to-Earnings ratio. Lower may indicate undervaluation; higher may suggest growth expectations.</span>
+                  </th>
+                  <th class="has-tooltip">Fwd P/E <span class="th-hint">ⓘ</span>
+                    <span class="col-tooltip">Forward P/E based on estimated earnings. Lower suggests better value relative to expected growth.</span>
+                  </th>
+                  <th class="has-tooltip">Rev Growth <span class="th-hint">ⓘ</span>
+                    <span class="col-tooltip">Year-over-year revenue growth. Higher indicates stronger top-line expansion.</span>
+                  </th>
+                  <th class="has-tooltip">ROE <span class="th-hint">ⓘ</span>
+                    <span class="col-tooltip">Return on Equity measures profitability. Higher ROE means better use of shareholder capital.</span>
+                  </th>
+                  <th class="has-tooltip">D/E <span class="th-hint">ⓘ</span>
+                    <span class="col-tooltip">Debt-to-Equity ratio. Lower indicates less leverage and financial risk.</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="current-ticker">
+                  <td><strong>{{ ticker }}</strong></td>
+                  <td class="has-tooltip">
+                    {{ analysis.fundamentals.valuation.pe_ratio | round(1) if analysis.fundamentals.valuation.pe_ratio else "—" }}
+                    {% if analysis.fundamentals.valuation.pe_ratio and avg_pe %}
+                    <span class="cell-tooltip {% if analysis.fundamentals.valuation.pe_ratio < avg_pe %}positive{% elif analysis.fundamentals.valuation.pe_ratio > avg_pe %}negative{% endif %}">
+                      {{ ticker }}'s P/E of {{ analysis.fundamentals.valuation.pe_ratio | round(1) }} is 
+                      {% if analysis.fundamentals.valuation.pe_ratio < avg_pe * 0.9 %}significantly below{% elif analysis.fundamentals.valuation.pe_ratio < avg_pe %}below{% elif analysis.fundamentals.valuation.pe_ratio > avg_pe * 1.1 %}significantly above{% else %}above{% endif %}
+                      the peer average of {{ avg_pe | round(1) }}. 
+                      {% if analysis.fundamentals.valuation.pe_ratio < avg_pe %}This suggests {{ ticker }} may be undervalued relative to peers.{% else %}This suggests the market expects higher growth from {{ ticker }}.{% endif %}
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ analysis.fundamentals.valuation.forward_pe | round(1) if analysis.fundamentals.valuation.forward_pe else "—" }}
+                    {% if analysis.fundamentals.valuation.forward_pe and avg_fwd_pe %}
+                    <span class="cell-tooltip {% if analysis.fundamentals.valuation.forward_pe < avg_fwd_pe %}positive{% elif analysis.fundamentals.valuation.forward_pe > avg_fwd_pe %}negative{% endif %}">
+                      {{ ticker }}'s Forward P/E of {{ analysis.fundamentals.valuation.forward_pe | round(1) }} is 
+                      {% if analysis.fundamentals.valuation.forward_pe < avg_fwd_pe %}below{% else %}above{% endif %}
+                      the peer average of {{ avg_fwd_pe | round(1) }}.
+                      {% if analysis.fundamentals.valuation.forward_pe < avg_fwd_pe %}Better value based on future earnings estimates.{% else %}Premium valuation based on growth expectations.{% endif %}
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ (analysis.fundamentals.growth.revenue_growth * 100) | round(1) if analysis.fundamentals.growth.revenue_growth else "—" }}{% if analysis.fundamentals.growth.revenue_growth %}%{% endif %}
+                    {% if analysis.fundamentals.growth.revenue_growth and avg_rev %}
+                    <span class="cell-tooltip {% if analysis.fundamentals.growth.revenue_growth > avg_rev %}positive{% elif analysis.fundamentals.growth.revenue_growth < avg_rev %}negative{% endif %}">
+                      {{ ticker }}'s revenue growth of {{ (analysis.fundamentals.growth.revenue_growth * 100) | round(1) }}% is 
+                      {% if analysis.fundamentals.growth.revenue_growth > avg_rev %}outpacing{% else %}lagging{% endif %}
+                      the peer average of {{ (avg_rev * 100) | round(1) }}%.
+                      {% if analysis.fundamentals.growth.revenue_growth > avg_rev %}Strong top-line momentum vs competitors.{% else %}Slower expansion than industry peers.{% endif %}
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ (analysis.fundamentals.profitability.roe * 100) | round(1) if analysis.fundamentals.profitability.roe else "—" }}{% if analysis.fundamentals.profitability.roe %}%{% endif %}
+                    {% if analysis.fundamentals.profitability.roe and avg_roe %}
+                    <span class="cell-tooltip {% if analysis.fundamentals.profitability.roe > avg_roe %}positive{% elif analysis.fundamentals.profitability.roe < avg_roe %}negative{% endif %}">
+                      {{ ticker }}'s ROE of {{ (analysis.fundamentals.profitability.roe * 100) | round(1) }}% is 
+                      {% if analysis.fundamentals.profitability.roe > avg_roe * 1.2 %}significantly higher{% elif analysis.fundamentals.profitability.roe > avg_roe %}higher{% elif analysis.fundamentals.profitability.roe < avg_roe * 0.8 %}significantly lower{% else %}lower{% endif %}
+                      than the peer average of {{ (avg_roe * 100) | round(1) }}%.
+                      {% if analysis.fundamentals.profitability.roe > avg_roe %}Superior capital efficiency vs peers.{% else %}Less efficient use of shareholder equity.{% endif %}
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ analysis.fundamentals.balance_sheet.debt_to_equity | round(2) if analysis.fundamentals.balance_sheet.debt_to_equity else "—" }}
+                    {% if analysis.fundamentals.balance_sheet.debt_to_equity and avg_de %}
+                    <span class="cell-tooltip {% if analysis.fundamentals.balance_sheet.debt_to_equity < avg_de %}positive{% elif analysis.fundamentals.balance_sheet.debt_to_equity > avg_de %}negative{% endif %}">
+                      {{ ticker }}'s D/E of {{ analysis.fundamentals.balance_sheet.debt_to_equity | round(2) }} is 
+                      {% if analysis.fundamentals.balance_sheet.debt_to_equity < avg_de %}lower{% else %}higher{% endif %}
+                      than the peer average of {{ avg_de | round(2) }}.
+                      {% if analysis.fundamentals.balance_sheet.debt_to_equity < avg_de %}Lower leverage means less financial risk.{% else %}Higher leverage increases financial risk.{% endif %}
+                    </span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% for peer in analysis.peers.peer_metrics %}
+                <tr>
+                  <td>{{ peer.ticker }}</td>
+                  <td class="has-tooltip">
+                    {{ peer.pe_ratio | round(1) if peer.pe_ratio else "—" }}
+                    {% if peer.pe_ratio and analysis.fundamentals.valuation.pe_ratio %}
+                    <span class="cell-tooltip">
+                      {{ peer.ticker }}'s P/E of {{ peer.pe_ratio | round(1) }} is 
+                      {% if peer.pe_ratio < analysis.fundamentals.valuation.pe_ratio %}{{ ((1 - peer.pe_ratio / analysis.fundamentals.valuation.pe_ratio) * 100) | round(0) }}% cheaper{% else %}{{ ((peer.pe_ratio / analysis.fundamentals.valuation.pe_ratio - 1) * 100) | round(0) }}% more expensive{% endif %}
+                      than {{ ticker }}.
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ peer.forward_pe | round(1) if peer.forward_pe else "—" }}
+                    {% if peer.forward_pe and analysis.fundamentals.valuation.forward_pe %}
+                    <span class="cell-tooltip">
+                      {{ peer.ticker }}'s Forward P/E of {{ peer.forward_pe | round(1) }} vs {{ ticker }}'s {{ analysis.fundamentals.valuation.forward_pe | round(1) }}.
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ (peer.revenue_growth * 100) | round(1) if peer.revenue_growth else "—" }}{% if peer.revenue_growth %}%{% endif %}
+                    {% if peer.revenue_growth and analysis.fundamentals.growth.revenue_growth %}
+                    <span class="cell-tooltip">
+                      {{ peer.ticker }} is growing revenue 
+                      {% if peer.revenue_growth > analysis.fundamentals.growth.revenue_growth %}faster{% else %}slower{% endif %}
+                      than {{ ticker }} ({{ (peer.revenue_growth * 100) | round(1) }}% vs {{ (analysis.fundamentals.growth.revenue_growth * 100) | round(1) }}%).
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ (peer.roe * 100) | round(1) if peer.roe else "—" }}{% if peer.roe %}%{% endif %}
+                    {% if peer.roe and analysis.fundamentals.profitability.roe %}
+                    <span class="cell-tooltip">
+                      {{ peer.ticker }}'s ROE of {{ (peer.roe * 100) | round(1) }}% is 
+                      {% if peer.roe > analysis.fundamentals.profitability.roe %}higher{% else %}lower{% endif %}
+                      than {{ ticker }}'s {{ (analysis.fundamentals.profitability.roe * 100) | round(1) }}%.
+                    </span>
+                    {% endif %}
+                  </td>
+                  <td class="has-tooltip">
+                    {{ peer.debt_to_equity | round(2) if peer.debt_to_equity else "—" }}
+                    {% if peer.debt_to_equity and analysis.fundamentals.balance_sheet.debt_to_equity %}
+                    <span class="cell-tooltip">
+                      {{ peer.ticker }} has 
+                      {% if peer.debt_to_equity < analysis.fundamentals.balance_sheet.debt_to_equity %}less{% else %}more{% endif %}
+                      leverage than {{ ticker }}.
+                    </span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          
+          {% if analysis.peers.percentile_ranks %}
+          <div class="percentile-ranks">
+            <h3>{{ ticker }} Percentile Ranks vs Peers</h3>
+            <div class="rank-grid">
+              {% for metric, rank in analysis.peers.percentile_ranks.items() %}
+              {% if rank is not none %}
+              <div class="rank-item">
+                <span class="metric-name">{{ metric | replace("_", " ") | title }}</span>
+                <div class="rank-bar-container">
+                  <div class="rank-bar" style="width: {{ rank }}%;"></div>
+                </div>
+                <span class="rank-value">{{ rank | round(0) }}%</span>
+              </div>
+              {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+          {% endif %}
+          {% else %}
+          <p class="no-data">No peer comparison data available.</p>
+          {% endif %}
+        </section>
+
+        <section class="tab-panel" id="news">
+          <!-- Sentiment Overview -->
+          <div class="sentiment-overview {{ analysis.sentiment.overall_sentiment | lower }}">
+            <div class="sentiment-header">
+              <div>
+                <p class="label">News Sentiment
+                  <span class="info-icon">ⓘ
+                    <span class="info-tooltip">Sentiment is analyzed from recent news headlines using keyword matching. Positive words (beat, growth, surge) add points while negative words (miss, decline, warning) subtract. The overall score helps gauge market perception, but should be combined with fundamental analysis.</span>
+                  </span>
+                </p>
+                <h3 class="sentiment-verdict">{{ analysis.sentiment.overall_sentiment }}</h3>
+              </div>
+              <div class="sentiment-score-box">
+                <span class="sentiment-score {% if analysis.sentiment.headline_score and analysis.sentiment.headline_score > 0 %}positive{% elif analysis.sentiment.headline_score and analysis.sentiment.headline_score < 0 %}negative{% endif %}">
+                  {% if analysis.sentiment.headline_score %}{{ analysis.sentiment.headline_score }}{% else %}N/A{% endif %}
+                </span>
+                <span class="score-label">Avg Score</span>
+              </div>
+            </div>
+            <p class="sentiment-description">{{ analysis.sentiment.sentiment_description }}</p>
+          </div>
+
+          <!-- Sentiment Stats -->
+          <div class="sentiment-stats">
+            <div class="stat-box positive">
+              <span class="stat-value">{{ analysis.sentiment.positive_count }}</span>
+              <span class="stat-label">Positive</span>
+            </div>
+            <div class="stat-box neutral">
+              <span class="stat-value">{{ analysis.sentiment.neutral_count }}</span>
+              <span class="stat-label">Neutral</span>
+            </div>
+            <div class="stat-box negative">
+              <span class="stat-value">{{ analysis.sentiment.negative_count }}</span>
+              <span class="stat-label">Negative</span>
+            </div>
+            <div class="stat-box total">
+              <span class="stat-value">{{ analysis.sentiment.headline_volume }}</span>
+              <span class="stat-label">Total Articles</span>
+            </div>
+          </div>
+
+          <!-- Sentiment Chart -->
+          <div class="chart-card chart-with-info">
+            <span class="chart-info-icon">ⓘ
+              <span class="chart-info-tooltip">
+                <strong>Sentiment Distribution</strong><br><br>
+                This chart shows the breakdown of recent news articles by sentiment:<br><br>
+                • <strong>Positive</strong> – Headlines with bullish keywords (growth, beat, upgrade)<br>
+                • <strong>Neutral</strong> – Headlines without strong sentiment signals<br>
+                • <strong>Negative</strong> – Headlines with bearish keywords (miss, decline, warning)<br><br>
+                More green bars suggest positive market perception.
+              </span>
+            </span>
+            {{ charts.sentiment | safe }}
+          </div>
+
+          <!-- News Feed -->
+          {% if analysis.sentiment.scored_items %}
+          <div class="news-section">
+            <h3 class="section-title">Recent Headlines ({{ analysis.sentiment.scored_items | length }} articles)
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Recent news headlines with sentiment scores. Green indicates positive sentiment, red indicates negative, and gray is neutral. Click headlines to read the full article. Powered by Finnhub.</span>
+              </span>
+            </h3>
+            <div class="news-feed" id="news-feed">
+              {% for item in analysis.sentiment.scored_items[:20] %}
+              <div class="news-item {{ item.sentiment }}">
+                <div class="news-sentiment-indicator"></div>
+                <div class="news-content">
+                  <a href="{{ item.url }}" target="_blank" rel="noopener" class="news-title">{{ item.title }}</a>
+                  <div class="news-meta">
+                    <span class="news-publisher">{{ item.publisher or "Unknown" }}</span>
+                    {% if item.published_at %}
+                    <span class="news-date">{{ item.published_at[:10] }}</span>
+                    {% endif %}
+                    <span class="news-score {{ item.sentiment }}">
+                      {% if item.score > 0 %}+{% endif %}{{ item.score }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% if analysis.sentiment.scored_items | length > 20 %}
+            <button class="load-more-btn" onclick="loadMoreNews()">Show More Headlines ({{ analysis.sentiment.scored_items | length - 20 }} remaining)</button>
+            <div class="news-feed hidden-news" id="hidden-news">
+              {% for item in analysis.sentiment.scored_items[20:] %}
+              <div class="news-item {{ item.sentiment }}">
+                <div class="news-sentiment-indicator"></div>
+                <div class="news-content">
+                  <a href="{{ item.url }}" target="_blank" rel="noopener" class="news-title">{{ item.title }}</a>
+                  <div class="news-meta">
+                    <span class="news-publisher">{{ item.publisher or "Unknown" }}</span>
+                    {% if item.published_at %}
+                    <span class="news-date">{{ item.published_at[:10] }}</span>
+                    {% endif %}
+                    <span class="news-score {{ item.sentiment }}">
+                      {% if item.score > 0 %}+{% endif %}{{ item.score }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          {% else %}
+          <div class="no-data">No recent news articles available for this ticker.</div>
+          {% endif %}
+        </section>
+
+        <section class="tab-panel" id="risk">
+          <!-- Risk Assessment Summary -->
+          {% set beta = analysis.risk.beta %}
+          {% set volatility = analysis.risk.volatility %}
+          {% set max_dd = analysis.risk.max_drawdown %}
+          {% set risk_level = "Moderate" %}
+          {% if beta and beta > 1.5 or volatility and volatility > 0.4 or max_dd and max_dd < -0.3 %}
+            {% set risk_level = "High" %}
+          {% elif beta and beta < 0.8 and volatility and volatility < 0.2 and max_dd and max_dd > -0.15 %}
+            {% set risk_level = "Low" %}
+          {% endif %}
+          
+          <div class="risk-summary-box {{ risk_level | lower }}">
+            <div class="risk-summary-header">
+              <div>
+                <p class="label">Risk Assessment
+                  <span class="info-icon">ⓘ
+                    <span class="info-tooltip">Overall risk assessment based on beta (market sensitivity), volatility (price fluctuation), and maximum drawdown (largest peak-to-trough decline). High risk = beta >1.5, volatility >40%, or drawdown >30%. Low risk = beta <0.8, volatility <20%, and drawdown <15%.</span>
+                  </span>
+                </p>
+                <h3 class="risk-verdict">{{ risk_level }} Risk</h3>
+              </div>
+              <div class="risk-gauge">
+                <div class="gauge-container">
+                  <div class="gauge-fill {{ risk_level | lower }}"></div>
+                  <div class="gauge-marker {{ risk_level | lower }}"></div>
+                </div>
+                <div class="gauge-labels">
+                  <span>Low</span>
+                  <span>Moderate</span>
+                  <span>High</span>
+                </div>
+              </div>
+            </div>
+            <p class="risk-description">
+              {% if risk_level == "High" %}
+              This stock exhibits higher-than-average risk characteristics. Expect larger price swings and potential for significant drawdowns. Suitable for investors with high risk tolerance and longer time horizons.
+              {% elif risk_level == "Low" %}
+              This stock shows lower-than-average risk characteristics. Typically experiences smaller price swings and more stable returns. Suitable for conservative investors seeking stability.
+              {% else %}
+              This stock has moderate risk characteristics typical of its sector. Expect normal market-related volatility. Suitable for investors with average risk tolerance.
+              {% endif %}
+            </p>
+          </div>
+
+          <!-- Key Risk Metrics -->
+          <div class="risk-section">
+            <h3 class="section-title">Key Risk Metrics
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Core measures of investment risk. These metrics help assess how much price fluctuation and downside potential to expect from this investment.</span>
+              </span>
+            </h3>
+            <div class="risk-metrics-grid">
+              <!-- Beta -->
+              <div class="risk-metric-card">
+                <div class="metric-header">
+                  <p class="label">Beta
+                    <span class="info-icon">ⓘ
+                      <span class="info-tooltip">Measures sensitivity to market movements. Beta of 1 = moves with market. Beta >1 = more volatile than market (amplifies gains/losses). Beta <1 = less volatile than market.</span>
+                    </span>
+                  </p>
+                  <strong class="metric-value {% if beta and beta > 1.3 %}high-risk{% elif beta and beta < 0.7 %}low-risk{% endif %}">
+                    {{ beta | round(2) if beta else "N/A" }}
+                  </strong>
+                </div>
+                {% if beta %}
+                <div class="beta-scale">
+                  <div class="scale-bar">
+                    <div class="scale-marker" style="left: {{ [[(beta / 2) * 100, 0] | max, 100] | min }}%;"></div>
+                  </div>
+                  <div class="scale-labels">
+                    <span>0</span>
+                    <span>1.0</span>
+                    <span>2.0+</span>
+                  </div>
+                </div>
+                <p class="metric-interpretation">
+                  {% if beta > 1.3 %}
+                  <span class="signal-negative">High sensitivity — amplifies market moves by {{ ((beta - 1) * 100) | round(0) }}%</span>
+                  {% elif beta < 0.7 %}
+                  <span class="signal-positive">Low sensitivity — dampens market moves by {{ ((1 - beta) * 100) | round(0) }}%</span>
+                  {% elif beta > 1 %}
+                  <span class="signal-neutral">Slightly more volatile than the market</span>
+                  {% else %}
+                  <span class="signal-neutral">Slightly less volatile than the market</span>
+                  {% endif %}
+                </p>
+                {% endif %}
+              </div>
+
+              <!-- Volatility -->
+              <div class="risk-metric-card">
+                <div class="metric-header">
+                  <p class="label">Annualized Volatility
+                    <span class="info-icon">ⓘ
+                      <span class="info-tooltip">Standard deviation of returns annualized. Higher volatility = larger price swings. Below 20% is low, 20-40% is moderate, above 40% is high volatility.</span>
+                    </span>
+                  </p>
+                  <strong class="metric-value {% if volatility and volatility > 0.4 %}high-risk{% elif volatility and volatility < 0.2 %}low-risk{% endif %}">
+                    {{ (volatility * 100) | round(1) if volatility else "N/A" }}{% if volatility %}%{% endif %}
+                  </strong>
+                </div>
+                {% if volatility %}
+                <div class="volatility-visual">
+                  <div class="vol-bar-container">
+                    <div class="vol-bar" style="width: {{ [[volatility * 100, 0] | max, 100] | min }}%;"></div>
+                  </div>
+                  <div class="vol-zones">
+                    <span class="zone low">Low <20%</span>
+                    <span class="zone moderate">Mod 20-40%</span>
+                    <span class="zone high">High >40%</span>
+                  </div>
+                </div>
+                <p class="metric-interpretation">
+                  {% if volatility > 0.4 %}
+                  <span class="signal-negative">High volatility — expect large price swings</span>
+                  {% elif volatility < 0.2 %}
+                  <span class="signal-positive">Low volatility — relatively stable price action</span>
+                  {% else %}
+                  <span class="signal-neutral">Moderate volatility — typical price fluctuations</span>
+                  {% endif %}
+                </p>
+                {% endif %}
+              </div>
+
+              <!-- Max Drawdown -->
+              <div class="risk-metric-card">
+                <div class="metric-header">
+                  <p class="label">Maximum Drawdown
+                    <span class="info-icon">ⓘ
+                      <span class="info-tooltip">Largest peak-to-trough decline during the selected period. Shows the worst-case scenario an investor would have experienced. Deeper drawdowns indicate higher risk.</span>
+                    </span>
+                  </p>
+                  <strong class="metric-value {% if max_dd and max_dd < -0.3 %}high-risk{% elif max_dd and max_dd > -0.1 %}low-risk{% endif %}">
+                    {{ (max_dd * 100) | round(1) if max_dd else "N/A" }}{% if max_dd %}%{% endif %}
+                  </strong>
+                </div>
+                {% if max_dd %}
+                <div class="drawdown-visual">
+                  <div class="dd-bar-container">
+                    <div class="dd-bar" style="width: {{ [[max_dd | abs * 100, 0] | max, 100] | min }}%;"></div>
+                  </div>
+                </div>
+                <p class="metric-interpretation">
+                  {% if max_dd < -0.3 %}
+                  <span class="signal-negative">Severe drawdown — significant capital at risk</span>
+                  {% elif max_dd > -0.1 %}
+                  <span class="signal-positive">Shallow drawdown — limited downside experienced</span>
+                  {% else %}
+                  <span class="signal-neutral">Moderate drawdown — within normal range</span>
+                  {% endif %}
+                </p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Market Correlation -->
+          <div class="risk-section">
+            <h3 class="section-title">Market Relationship
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">How this stock moves relative to the broader market ({{ snapshot.context.benchmark }}). High correlation means the stock tends to follow market direction. Low correlation may provide diversification benefits.</span>
+              </span>
+            </h3>
+            <div class="correlation-grid">
+              <div class="correlation-card">
+                <p class="label">Benchmark</p>
+                <strong>{{ snapshot.context.benchmark }}</strong>
+              </div>
+              <div class="correlation-card">
+                <p class="label">Correlation</p>
+                <strong>{{ analysis.price.correlation | round(2) if analysis.price.correlation else "N/A" }}</strong>
+                {% if analysis.price.correlation %}
+                <span class="correlation-desc">
+                  {% if analysis.price.correlation > 0.7 %}Strong positive{% elif analysis.price.correlation > 0.3 %}Moderate positive{% elif analysis.price.correlation > -0.3 %}Weak/No correlation{% elif analysis.price.correlation > -0.7 %}Moderate negative{% else %}Strong negative{% endif %}
+                </span>
+                {% endif %}
+              </div>
+              <div class="correlation-card">
+                <p class="label">Total Return</p>
+                <strong class="{% if analysis.price.total_return and analysis.price.total_return > 0 %}positive{% elif analysis.price.total_return %}negative{% endif %}">
+                  {% if analysis.price.total_return %}{{ (analysis.price.total_return * 100) | round(1) }}%{% else %}N/A{% endif %}
+                </strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Risk/Return Profile -->
+          <div class="risk-section">
+            <h3 class="section-title">Risk/Return Profile
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Compares return achieved relative to risk taken. A good investment has high return for its level of risk. The Sharpe-like ratio divides return by volatility — higher is better.</span>
+              </span>
+            </h3>
+            <div class="risk-return-grid">
+              <div class="rr-card">
+                <p class="label">Return (Period)</p>
+                <strong class="{% if analysis.price.total_return and analysis.price.total_return > 0 %}positive{% elif analysis.price.total_return %}negative{% endif %}">
+                  {% if analysis.price.total_return %}{{ (analysis.price.total_return * 100) | round(1) }}%{% else %}N/A{% endif %}
+                </strong>
+              </div>
+              <div class="rr-card">
+                <p class="label">Volatility</p>
+                <strong>{{ (volatility * 100) | round(1) if volatility else "N/A" }}{% if volatility %}%{% endif %}</strong>
+              </div>
+              <div class="rr-card highlight">
+                <p class="label">Return/Risk Ratio</p>
+                {% if analysis.price.total_return and volatility and volatility > 0 %}
+                {% set rr_ratio = analysis.price.total_return / volatility %}
+                <strong class="{% if rr_ratio > 1 %}positive{% elif rr_ratio < 0 %}negative{% endif %}">
+                  {{ rr_ratio | round(2) }}
+                </strong>
+                <span class="rr-desc">
+                  {% if rr_ratio > 1.5 %}Excellent{% elif rr_ratio > 0.5 %}Good{% elif rr_ratio > 0 %}Fair{% else %}Poor{% endif %}
+                </span>
+                {% else %}
+                <strong>N/A</strong>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <!-- Risk Warnings -->
+          <div class="risk-warnings">
+            <h3 class="section-title">Risk Factors to Consider
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Specific risk factors identified for this stock based on its characteristics. These should inform position sizing and investment decisions.</span>
+              </span>
+            </h3>
+            <ul class="warning-list">
+              {% if beta and beta > 1.3 %}
+              <li class="warning high">
+                <span class="warning-icon">⚠️</span>
+                <span>High beta ({{ beta | round(2) }}) means this stock amplifies market movements — larger gains in bull markets but larger losses in downturns.</span>
+              </li>
+              {% endif %}
+              {% if volatility and volatility > 0.4 %}
+              <li class="warning high">
+                <span class="warning-icon">⚠️</span>
+                <span>High volatility ({{ (volatility * 100) | round(1) }}%) indicates significant price swings — requires strong risk tolerance and potentially wider stop-losses.</span>
+              </li>
+              {% endif %}
+              {% if max_dd and max_dd < -0.3 %}
+              <li class="warning high">
+                <span class="warning-icon">⚠️</span>
+                <span>Large historical drawdown ({{ (max_dd * 100) | round(1) }}%) shows potential for significant capital loss during downturns.</span>
+              </li>
+              {% endif %}
+              {% if analysis.fundamentals.balance_sheet.debt_to_equity and analysis.fundamentals.balance_sheet.debt_to_equity > 2 %}
+              <li class="warning moderate">
+                <span class="warning-icon">⚡</span>
+                <span>High debt/equity ratio ({{ analysis.fundamentals.balance_sheet.debt_to_equity | round(2) }}) increases financial risk, especially in rising rate environments.</span>
+              </li>
+              {% endif %}
+              {% if analysis.fundamentals.valuation.pe_ratio and analysis.fundamentals.valuation.pe_ratio > 40 %}
+              <li class="warning moderate">
+                <span class="warning-icon">⚡</span>
+                <span>High P/E ratio ({{ analysis.fundamentals.valuation.pe_ratio | round(1) }}) means the stock is priced for perfection — vulnerable to earnings disappointments.</span>
+              </li>
+              {% endif %}
+              {% if not (beta and beta > 1.3) and not (volatility and volatility > 0.4) and not (max_dd and max_dd < -0.3) %}
+              <li class="warning low">
+                <span class="warning-icon">✓</span>
+                <span>No major risk flags identified based on current metrics. Standard market and company-specific risks still apply.</span>
+              </li>
+              {% endif %}
+            </ul>
+          </div>
+        </section>
+      {% endif %}
+    </main>
+
+    <script>
+      const tabs = document.querySelectorAll(".tab");
+      const panels = document.querySelectorAll(".tab-panel");
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tabs.forEach((t) => t.classList.remove("active"));
+          panels.forEach((panel) => panel.classList.remove("active"));
+          tab.classList.add("active");
+          document.getElementById(tab.dataset.target).classList.add("active");
+        });
+      });
+
+      // Load more news function
+      function loadMoreNews() {
+        const hiddenNews = document.getElementById("hidden-news");
+        const btn = document.querySelector(".load-more-btn");
+        if (hiddenNews) {
+          hiddenNews.classList.add("show");
+          if (btn) btn.style.display = "none";
+        }
+      }
+
+      // Switch to specific tab
+      function switchToTab(tabName) {
+        const tabMapping = {
+          'technicals': 'technicals',
+          'fundamentals': 'fundamentals',
+          'valuation': 'valuation',
+          'risk': 'risk',
+          'news/sentiment': 'news',
+          'peers/sector': 'peers'
+        };
+        const targetId = tabMapping[tabName.toLowerCase()] || tabName.toLowerCase();
+        const targetTab = document.querySelector(`.tab[data-target="${targetId}"]`);
+        if (targetTab) {
+          targetTab.click();
+        }
+      }
+    </script>
+  </body>
+</html>
