@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import logging
+import time
 import requests
 
 import yfinance as yf
@@ -84,13 +85,71 @@ def _extract_ohlcv(df, ticker=None):
 
 
 class YFinanceProvider(DataProvider):
+    def _safe_get_info(self, ticker, max_retries=3, retry_delay=2):
+        """Safely get ticker info with retry logic for rate limits"""
+        for attempt in range(max_retries):
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                info = ticker_obj.info
+                if info and isinstance(info, dict) and len(info) > 0:
+                    return info
+                # If info is empty or invalid, wait and retry
+                if attempt < max_retries - 1:
+                    logger.warning(f"Empty info for {ticker}, retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+            except Exception as e:
+                error_msg = str(e).lower()
+                # Check for rate limit errors
+                if "429" in error_msg or "too many requests" in error_msg or "rate limit" in error_msg:
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (attempt + 1)  # Exponential backoff
+                        logger.warning(f"Rate limit hit for {ticker}, waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Rate limit exceeded for {ticker} after {max_retries} attempts")
+                        raise Exception(f"Yahoo Finance rate limit exceeded. Please try again in a few minutes.")
+                elif "json" in error_msg.lower() or "decode" in error_msg.lower():
+                    # JSON decode error often means rate limit
+                    if attempt < max_retries - 1:
+                        wait_time = retry_delay * (attempt + 1)
+                        logger.warning(f"JSON decode error for {ticker} (likely rate limit), waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"Failed to parse response for {ticker} after {max_retries} attempts")
+                        raise Exception(f"Unable to fetch data for {ticker}. Yahoo Finance may be rate-limiting requests.")
+                else:
+                    # Other errors, re-raise immediately
+                    logger.error(f"Error fetching info for {ticker}: {e}")
+                    raise
+        
+        # If we get here, all retries failed
+        logger.error(f"Failed to get info for {ticker} after {max_retries} attempts")
+        return {}
+    
     def get_ticker_context(self, ticker):
-        info = yf.Ticker(ticker).info or {}
+        try:
+            info = self._safe_get_info(ticker)
+        except Exception as e:
+            logger.error(f"Error getting ticker context for {ticker}: {e}")
+            # Return minimal context on error
+            return TickerContext(
+                ticker=ticker,
+                company_name=ticker,
+                sector=None,
+                industry=None,
+                exchange=None,
+                currency="USD",
+                peers=[],
+                benchmark=DEFAULT_BENCHMARK,
+            )
+        
         company_name = info.get("shortName") or info.get("longName") or ticker
         sector = info.get("sector")
         industry = info.get("industry")
         exchange = info.get("exchange")
-        currency = info.get("currency")
+        currency = info.get("currency") or "USD"
         peers = info.get("similarTickers") or []
         benchmark = SECTOR_ETF_MAP.get(sector, DEFAULT_BENCHMARK)
         return TickerContext(

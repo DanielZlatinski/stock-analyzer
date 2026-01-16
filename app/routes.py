@@ -92,7 +92,16 @@ def index():
         except Exception as e:
             logger.error(f"Error processing request: {str(e)}")
             logger.error(traceback.format_exc())
-            error_msg = f"Error processing {ticker}: {str(e)}"
+            
+            # User-friendly error messages
+            error_str = str(e).lower()
+            if "rate limit" in error_str or "429" in error_str or "too many requests" in error_str:
+                error_msg = f"Yahoo Finance is rate-limiting requests. Please wait a minute and try again. (This happens when too many requests are made from the same server.)"
+            elif "unable to fetch" in error_str:
+                error_msg = f"Unable to fetch data for {ticker}. Yahoo Finance may be temporarily unavailable. Please try again in a few minutes."
+            else:
+                error_msg = f"Error processing {ticker}: {str(e)}"
+            
             return render_template("index.html", error=error_msg, horizon=horizon, interval=interval)
 
     return render_template("index.html", horizon="1y", interval="1d")
