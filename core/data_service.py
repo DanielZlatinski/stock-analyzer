@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from core.cache import DiskCache
+from core.cache import get_cache
 from core.config import TTL_SECONDS
 from core.logging import get_logger
 from core.models import DataQualityReport, DataSnapshot
@@ -9,7 +9,7 @@ from core.models import DataQualityReport, DataSnapshot
 class DataService:
     def __init__(self, provider, cache=None, logger=None):
         self.provider = provider
-        self.cache = cache or DiskCache()
+        self.cache = cache or get_cache()
         self.logger = logger or get_logger()
 
     def _cache_key(self, name, *parts):

@@ -6,6 +6,46 @@ from datetime import datetime, timedelta
 from core.config import CACHE_DIR
 
 
+class MemoryCache:
+    """Lightweight in-memory cache for low-memory environments."""
+    
+    _store = {}  # Class-level to persist across requests
+    MAX_SIZE = 20  # Limit cached items to save memory
+    
+    def __init__(self):
+        pass
+    
+    def get(self, key, ttl_seconds):
+        if key not in self._store:
+            return None, None
+        
+        payload = self._store[key]
+        stored_at = payload.get("stored_at")
+        if stored_at is None:
+            return None, None
+        
+        expires_at = stored_at + timedelta(seconds=ttl_seconds)
+        if datetime.utcnow() > expires_at:
+            del self._store[key]
+            return None, None
+        
+        return payload.get("data"), stored_at
+    
+    def set(self, key, data):
+        # Evict oldest if at capacity
+        if len(self._store) >= self.MAX_SIZE:
+            oldest_key = min(self._store.keys(), 
+                           key=lambda k: self._store[k].get("stored_at", datetime.min))
+            del self._store[oldest_key]
+        
+        payload = {
+            "stored_at": datetime.utcnow(),
+            "data": data,
+        }
+        self._store[key] = payload
+        return payload["stored_at"]
+
+
 class DiskCache:
     def __init__(self, base_dir=CACHE_DIR):
         self.base_dir = base_dir
@@ -20,8 +60,11 @@ class DiskCache:
         if not os.path.exists(path):
             return None, None
 
-        with open(path, "rb") as handle:
-            payload = pickle.load(handle)
+        try:
+            with open(path, "rb") as handle:
+                payload = pickle.load(handle)
+        except Exception:
+            return None, None
 
         stored_at = payload.get("stored_at")
         if stored_at is None:
@@ -39,6 +82,16 @@ class DiskCache:
             "stored_at": datetime.utcnow(),
             "data": data,
         }
-        with open(path, "wb") as handle:
-            pickle.dump(payload, handle)
+        try:
+            with open(path, "wb") as handle:
+                pickle.dump(payload, handle)
+        except Exception:
+            pass  # Fail silently on disk issues
         return payload["stored_at"]
+
+
+def get_cache():
+    """Factory function to get appropriate cache based on environment."""
+    if os.environ.get("LOW_MEMORY_MODE") == "1":
+        return MemoryCache()
+    return DiskCache()

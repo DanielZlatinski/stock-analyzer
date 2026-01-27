@@ -3,9 +3,11 @@ services:
     name: stock-analyzer
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn wsgi:application
+    startCommand: gunicorn wsgi:application --workers 1 --threads 2 --timeout 120 --max-requests 50
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.0
       - key: FINNHUB_API_KEY
         value: d5l1bthr01qt47mg4io0d5l1bthr01qt47mg4iog
+      - key: LOW_MEMORY_MODE
+        value: "1"
