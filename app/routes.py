@@ -481,10 +481,8 @@ def get_chart_data():
         chart_html = ""
         if chart_type == "price":
             # Get technicals for price chart
-            from core.analytics.technicals import analyze_technicals
-            from core.analysis_models import TechnicalsAnalysis
-            technicals_data = analyze_technicals(price_history)
-            technicals = TechnicalsAnalysis(**technicals_data)
+            from core.analytics.technicals import build_technical_indicators
+            technicals = build_technical_indicators(price_history)
             chart_html = price_candlestick(price_history, technicals)
         elif chart_type == "volume":
             chart_html = volume_chart(price_history)

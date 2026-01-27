@@ -48,14 +48,14 @@ def analyze_options(ticker):
             }
         
         # Calculate key metrics
-        # Volume
-        total_call_volume = int(calls["volume"].sum()) if "volume" in calls.columns else 0
-        total_put_volume = int(puts["volume"].sum()) if "volume" in puts.columns else 0
+        # Volume - fill NaN values with 0 before summing
+        total_call_volume = int(calls["volume"].fillna(0).sum()) if "volume" in calls.columns else 0
+        total_put_volume = int(puts["volume"].fillna(0).sum()) if "volume" in puts.columns else 0
         total_volume = total_call_volume + total_put_volume
         
-        # Open Interest
-        total_call_oi = int(calls["openInterest"].sum()) if "openInterest" in calls.columns else 0
-        total_put_oi = int(puts["openInterest"].sum()) if "openInterest" in puts.columns else 0
+        # Open Interest - fill NaN values with 0 before summing
+        total_call_oi = int(calls["openInterest"].fillna(0).sum()) if "openInterest" in calls.columns else 0
+        total_put_oi = int(puts["openInterest"].fillna(0).sum()) if "openInterest" in puts.columns else 0
         total_oi = total_call_oi + total_put_oi
         
         # Put/Call Ratios
@@ -106,24 +106,32 @@ def analyze_options(ticker):
         top_put_strikes = []
         
         if not calls.empty and "volume" in calls.columns:
-            top_calls = calls.nlargest(5, "volume")[["strike", "volume", "openInterest", "lastPrice"]]
+            # Fill NaN values before sorting
+            calls_filled = calls.fillna({"volume": 0, "openInterest": 0, "lastPrice": 0})
+            top_calls = calls_filled.nlargest(5, "volume")[["strike", "volume", "openInterest", "lastPrice"]]
             for _, row in top_calls.iterrows():
-                top_call_strikes.append({
-                    "strike": float(row["strike"]),
-                    "volume": int(row["volume"]) if row["volume"] else 0,
-                    "oi": int(row["openInterest"]) if row["openInterest"] else 0,
-                    "price": float(row["lastPrice"]) if row["lastPrice"] else 0,
-                })
+                vol = row["volume"]
+                if vol > 0:  # Only include strikes with actual volume
+                    top_call_strikes.append({
+                        "strike": float(row["strike"]),
+                        "volume": int(vol),
+                        "oi": int(row["openInterest"]),
+                        "price": float(row["lastPrice"]),
+                    })
         
         if not puts.empty and "volume" in puts.columns:
-            top_puts = puts.nlargest(5, "volume")[["strike", "volume", "openInterest", "lastPrice"]]
+            # Fill NaN values before sorting
+            puts_filled = puts.fillna({"volume": 0, "openInterest": 0, "lastPrice": 0})
+            top_puts = puts_filled.nlargest(5, "volume")[["strike", "volume", "openInterest", "lastPrice"]]
             for _, row in top_puts.iterrows():
-                top_put_strikes.append({
-                    "strike": float(row["strike"]),
-                    "volume": int(row["volume"]) if row["volume"] else 0,
-                    "oi": int(row["openInterest"]) if row["openInterest"] else 0,
-                    "price": float(row["lastPrice"]) if row["lastPrice"] else 0,
-                })
+                vol = row["volume"]
+                if vol > 0:  # Only include strikes with actual volume
+                    top_put_strikes.append({
+                        "strike": float(row["strike"]),
+                        "volume": int(vol),
+                        "oi": int(row["openInterest"]),
+                        "price": float(row["lastPrice"]),
+                    })
         
         # Implied Move calculation (simplified)
         atm_call_price = 0

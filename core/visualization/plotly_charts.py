@@ -347,8 +347,11 @@ def options_volume_chart(options_data):
         return "<p style='padding: 40px; text-align: center; color: #64748b;'>No options data available</p>"
     
     vol_data = options_data.get("volume", {})
-    call_vol = vol_data.get("calls", 0)
-    put_vol = vol_data.get("puts", 0)
+    call_vol = int(vol_data.get("calls", 0) or 0)
+    put_vol = int(vol_data.get("puts", 0) or 0)
+    
+    if call_vol == 0 and put_vol == 0:
+        return "<p style='padding: 40px; text-align: center; color: #64748b;'>No volume data available for this expiration</p>"
     
     fig = go.Figure()
     
@@ -360,12 +363,16 @@ def options_volume_chart(options_data):
         textposition="outside",
     ))
     
+    # Calculate appropriate y-axis range
+    max_val = max(call_vol, put_vol)
+    
     fig.update_layout(
         title="Options Volume (Calls vs Puts)",
         yaxis_title="Volume",
+        yaxis=dict(range=[0, max_val * 1.2]),  # Add 20% padding
         showlegend=False,
         height=300,
-        margin=dict(l=50, r=20, t=50, b=40),
+        margin=dict(l=60, r=20, t=50, b=40),
         font=dict(family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif", size=12),
         plot_bgcolor="#fff",
         paper_bgcolor="#fff",
@@ -384,8 +391,11 @@ def options_oi_chart(options_data):
         return "<p style='padding: 40px; text-align: center; color: #64748b;'>No options data available</p>"
     
     oi_data = options_data.get("open_interest", {})
-    call_oi = oi_data.get("calls", 0)
-    put_oi = oi_data.get("puts", 0)
+    call_oi = int(oi_data.get("calls", 0) or 0)
+    put_oi = int(oi_data.get("puts", 0) or 0)
+    
+    if call_oi == 0 and put_oi == 0:
+        return "<p style='padding: 40px; text-align: center; color: #64748b;'>No open interest data available for this expiration</p>"
     
     fig = go.Figure()
     
@@ -397,12 +407,16 @@ def options_oi_chart(options_data):
         textposition="outside",
     ))
     
+    # Calculate appropriate y-axis range
+    max_val = max(call_oi, put_oi)
+    
     fig.update_layout(
         title="Open Interest (Calls vs Puts)",
         yaxis_title="Open Interest",
+        yaxis=dict(range=[0, max_val * 1.2]),  # Add 20% padding
         showlegend=False,
         height=300,
-        margin=dict(l=50, r=20, t=50, b=40),
+        margin=dict(l=60, r=20, t=50, b=40),
         font=dict(family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif", size=12),
         plot_bgcolor="#fff",
         paper_bgcolor="#fff",

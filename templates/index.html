@@ -174,13 +174,14 @@
             <div class="factors-grid">
               {% if analysis.recommendation.factor_details %}
               {% set factors = [
-                ("technical", "Technical", "18%", "Technicals"),
-                ("fundamental", "Fundamentals", "22%", "Fundamentals"),
-                ("valuation", "Valuation", "20%", "Valuation"),
-                ("risk", "Risk", "12%", "Risk"),
-                ("sentiment", "Sentiment", "8%", "News/Sentiment"),
-                ("momentum", "Momentum", "12%", "Technicals"),
-                ("market", "Market", "8%", "Market")
+                ("technical", "Technical", "15%", "Technicals"),
+                ("momentum", "Momentum", "10%", "Technicals"),
+                ("fundamental", "Fundamentals", "20%", "Fundamentals"),
+                ("valuation", "Valuation", "18%", "Valuation"),
+                ("peers", "Peers", "7%", "Peers/Sector"),
+                ("market", "Market", "8%", "Market"),
+                ("sentiment", "Sentiment", "7%", "News/Sentiment"),
+                ("risk", "Risk", "15%", "Risk")
               ] %}
               {% for key, name, weight, tab in factors %}
               {% set details = analysis.recommendation.factor_details.get(key, {}) %}
@@ -488,9 +489,9 @@
                 The stock line (blue) vs S&P 500 (green), NASDAQ (purple), DOW (orange).
               </span>
             </span>
-            <div class="chart-content" id="indices-chart-content">
+            <div class="chart-content" id="indices-chart-content" data-auto-load="true">
               <div style="padding: 60px; text-align: center; color: #64748b;">
-                <p>Click a time period above to load comparison chart</p>
+                <p>Loading indices comparison...</p>
               </div>
             </div>
           </div>
@@ -2170,6 +2171,24 @@
             chartContent.classList.remove('loading');
           }
         }
+        
+        // Auto-load indices chart with default 1Y period on page load
+        setTimeout(async function() {
+          try {
+            const chartContent = document.getElementById('indices-chart-content');
+            if (chartContent && chartContent.dataset.autoLoad === 'true') {
+              console.log('Auto-loading indices chart with 1Y period');
+              chartContent.dataset.autoLoad = 'false'; // Prevent re-loading
+              await updateChart('indices', '1y');
+            }
+          } catch (e) {
+            console.error('Error auto-loading indices chart:', e);
+            const chartContent = document.getElementById('indices-chart-content');
+            if (chartContent) {
+              chartContent.innerHTML = '<div style="padding: 40px; text-align: center; color: #dc2626;">Failed to load indices chart. Try clicking a period above.</div>';
+            }
+          }
+        }, 500); // Small delay to ensure everything is ready
       })();
 
       // ============================================

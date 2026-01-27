@@ -330,41 +330,93 @@ class ScoringService:
         }
         
         # ============================================================
-        # PEER COMPARISON ADJUSTMENT
+        # PEERS SCORE (7% weight)
+        # How does this stock compare to its peers?
         # ============================================================
-        peer_adjustment = 0
+        peers_score = 50  # Default neutral
+        peers_explanation = "Limited peer data available."
+        
         peer_ranks = analysis.peers.percentile_ranks if analysis.peers else {}
         if peer_ranks:
+            peer_subscores = []
+            
+            # P/E rank: lower is better (cheaper valuation)
             pe_rank = peer_ranks.get("pe_ratio")
+            if pe_rank is not None:
+                # Invert: low percentile (cheap) = high score
+                peer_subscores.append(100 - pe_rank)
+            
+            # Forward P/E rank: lower is better
+            fwd_pe_rank = peer_ranks.get("forward_pe")
+            if fwd_pe_rank is not None:
+                peer_subscores.append(100 - fwd_pe_rank)
+            
+            # ROE rank: higher is better (more profitable)
             roe_rank = peer_ranks.get("roe")
-            # If we're in bottom quartile for P/E (cheap) and top quartile for ROE (quality), boost score
-            if pe_rank is not None and pe_rank < 25:
-                peer_adjustment += 3
-            if roe_rank is not None and roe_rank > 75:
-                peer_adjustment += 2
+            if roe_rank is not None:
+                peer_subscores.append(roe_rank)
+            
+            # Revenue growth rank: higher is better
+            rev_rank = peer_ranks.get("revenue_growth")
+            if rev_rank is not None:
+                peer_subscores.append(rev_rank)
+            
+            # Debt/Equity rank: lower is better (less leveraged)
+            de_rank = peer_ranks.get("debt_to_equity")
+            if de_rank is not None:
+                peer_subscores.append(100 - de_rank)
+            
+            if peer_subscores:
+                peers_score = _avg(peer_subscores)
+                
+                # Build explanation
+                strengths = []
+                weaknesses = []
+                if pe_rank is not None:
+                    if pe_rank < 30:
+                        strengths.append("cheaper valuation than most peers")
+                    elif pe_rank > 70:
+                        weaknesses.append("more expensive than peers")
+                if roe_rank is not None:
+                    if roe_rank > 70:
+                        strengths.append("higher profitability")
+                    elif roe_rank < 30:
+                        weaknesses.append("lower profitability")
+                
+                if strengths:
+                    peers_explanation = f"Ranks favorably: {', '.join(strengths)}."
+                elif weaknesses:
+                    peers_explanation = f"Ranks below peers: {', '.join(weaknesses)}."
+                else:
+                    peers_explanation = "Ranks near peer average on key metrics."
+        
+        peers_details = {
+            "score": peers_score,
+            "signal": _signal_from_score(peers_score),
+            "pe_rank": peer_ranks.get("pe_ratio"),
+            "roe_rank": peer_ranks.get("roe"),
+            "explanation": peers_explanation,
+        }
         
         # ============================================================
         # CALCULATE FINAL WEIGHTED SCORE
         # ============================================================
         scores = {
             "technical": technical_score or 50,
+            "momentum": momentum_score or 50,
             "fundamental": fundamental_score or 50 if not is_etf else 50,
             "valuation": valuation_score or 50 if not is_etf else 50,
-            "risk": risk_score or 50,
-            "sentiment": sentiment_score or 50,
-            "momentum": momentum_score or 50,
+            "peers": peers_score or 50 if not is_etf else 50,
             "market": market_score or 50,
+            "sentiment": sentiment_score or 50,
+            "risk": risk_score or 50,
         }
         
         weighted_total = 0
         for key, weight in weights.items():  # Use dynamic weights (ETF vs equity)
             weighted_total += scores[key] * weight
         
-        # Apply peer adjustment (max ±5 points) - only for equities
-        if not is_etf:
-            weighted_total = max(0, min(100, weighted_total + peer_adjustment))
-        else:
-            weighted_total = max(0, min(100, weighted_total))
+        weighted_total = max(0, min(100, weighted_total))
         
         # ============================================================
         # CALCULATE TIMING SIGNAL (Entry Point Quality)
@@ -412,18 +464,20 @@ class ScoringService:
         # Factor details for Overview display
         factor_details = {
             "technical": technical_details,
+            "momentum": momentum_details,
             "fundamental": fundamental_details,
             "valuation": valuation_details,
-            "risk": risk_details,
-            "sentiment": sentiment_details,
-            "momentum": momentum_details,
+            "peers": peers_details,
             "market": market_details,
+            "sentiment": sentiment_details,
+            "risk": risk_details,
         }
         
-        # For ETFs, update fundamental/valuation explanations
+        # For ETFs, update inapplicable factor explanations
         if is_etf:
             factor_details["fundamental"]["explanation"] = "Not applicable for ETFs."
             factor_details["valuation"]["explanation"] = "Not applicable for ETFs."
+            factor_details["peers"]["explanation"] = "Not applicable for ETFs."
         
         return Recommendation(
             rating=rating,
