@@ -18,18 +18,21 @@
       </header>
 
       <section class="card">
-        <form method="POST" class="form">
-          <div class="field">
+        <form method="POST" class="form" id="analysis-form">
+          <div class="field ticker-field">
             <label for="ticker">Stock Ticker</label>
-            <input
-              id="ticker"
-              name="ticker"
-              type="text"
-              placeholder="e.g. AAPL"
-              value="{{ ticker or '' }}"
-              autocomplete="off"
-              required
-            />
+            <div class="ticker-input-wrapper">
+              <input
+                id="ticker"
+                name="ticker"
+                type="text"
+                placeholder="e.g. AAPL or Apple"
+                value="{{ ticker or '' }}"
+                autocomplete="off"
+                required
+              />
+              <div class="ticker-dropdown" id="ticker-dropdown"></div>
+            </div>
           </div>
           <div class="field">
             <label for="horizon">Horizon</label>
@@ -65,9 +68,18 @@
         <section class="card">
           <div class="overview-grid">
             <div>
-              <h2>{{ snapshot.context.company_name }} ({{ ticker }})</h2>
+              <h2>{{ snapshot.context.company_name }} ({{ ticker }}){% if snapshot.context.quote_type == 'ETF' %} <span class="asset-type-badge etf">ETF</span>{% elif snapshot.context.quote_type == 'MUTUALFUND' %} <span class="asset-type-badge fund">Fund</span>{% endif %}</h2>
               <p class="subtle">
+                {% if snapshot.context.quote_type == 'ETF' %}
+                Exchange-Traded Fund
+                {% elif snapshot.context.quote_type == 'MUTUALFUND' %}
+                Mutual Fund
+                {% else %}
                 {{ snapshot.context.sector or "N/A" }} · {{ snapshot.context.industry or "N/A" }}
+                {% endif %}
+                <span class="data-freshness" title="Data last updated">
+                  · Updated: {% if snapshot.last_updated.prices %}{{ snapshot.last_updated.prices.strftime('%b %d, %H:%M') }}{% else %}N/A{% endif %}
+                </span>
               </p>
             </div>
             <div>
@@ -101,6 +113,7 @@
           <button class="tab" data-target="fundamentals">Fundamentals</button>
           <button class="tab" data-target="valuation">Valuation</button>
           <button class="tab" data-target="peers">Peers/Sector</button>
+          <button class="tab" data-target="market">Market</button>
           <button class="tab" data-target="news">News/Sentiment</button>
           <button class="tab" data-target="risk">Risk</button>
         </section>
@@ -120,8 +133,21 @@
               </div>
               <div class="banner-details">
                 <p class="verdict-description">{{ analysis.recommendation.rating_description }}</p>
-                <div class="confidence-badge {{ analysis.recommendation.confidence | lower }}">
-                  Confidence: {{ analysis.recommendation.confidence }}
+                <div class="badge-row">
+                  <div class="confidence-badge {{ analysis.recommendation.confidence | lower }}">
+                    Confidence: {{ analysis.recommendation.confidence }}
+                  </div>
+                  <div class="timing-badge {{ analysis.recommendation.timing_signal | lower }}" title="{{ analysis.recommendation.timing_description }}">
+                    <span class="timing-icon">⏱</span> Entry: {{ analysis.recommendation.timing_signal }}
+                    <span class="info-icon small">ⓘ
+                      <span class="info-tooltip">{{ analysis.recommendation.timing_description }}</span>
+                    </span>
+                  </div>
+                  {% if analysis.recommendation.is_etf %}
+                  <div class="etf-scoring-badge">
+                    <span class="etf-icon">📊</span> ETF Scoring Mode
+                  </div>
+                  {% endif %}
                 </div>
               </div>
             </div>
@@ -131,9 +157,9 @@
                 <div class="score-marker" style="left: {{ analysis.recommendation.score }}%;"></div>
               </div>
               <div class="score-zones">
-                <span class="zone avoid">Avoid 0-44</span>
-                <span class="zone watch">Watch 45-69</span>
-                <span class="zone invest">Invest 70-100</span>
+                <span class="zone avoid">Avoid 0-41</span>
+                <span class="zone watch">Watch 42-57</span>
+                <span class="zone invest">Invest 58-100</span>
               </div>
             </div>
           </div>
@@ -148,12 +174,13 @@
             <div class="factors-grid">
               {% if analysis.recommendation.factor_details %}
               {% set factors = [
-                ("technical", "Technical", "20%", "Technicals"),
-                ("fundamental", "Fundamentals", "25%", "Fundamentals"),
+                ("technical", "Technical", "18%", "Technicals"),
+                ("fundamental", "Fundamentals", "22%", "Fundamentals"),
                 ("valuation", "Valuation", "20%", "Valuation"),
-                ("risk", "Risk", "15%", "Risk"),
-                ("sentiment", "Sentiment", "10%", "News/Sentiment"),
-                ("momentum", "Momentum", "10%", "Technicals")
+                ("risk", "Risk", "12%", "Risk"),
+                ("sentiment", "Sentiment", "8%", "News/Sentiment"),
+                ("momentum", "Momentum", "12%", "Technicals"),
+                ("market", "Market", "8%", "Market")
               ] %}
               {% for key, name, weight, tab in factors %}
               {% set details = analysis.recommendation.factor_details.get(key, {}) %}
@@ -228,53 +255,164 @@
             </div>
           </div>
 
-          <!-- Quick Stats Summary -->
-          <div class="quick-stats-section">
-            <h3 class="section-title">Key Metrics</h3>
-            <div class="quick-stats-grid">
-              <div class="quick-stat">
-                <span class="qs-label">Price</span>
-                <span class="qs-value">${{ analysis.fundamentals.valuation.current_price | round(2) if analysis.fundamentals.valuation.current_price else "N/A" }}</span>
+          <!-- Combined Key Metrics & Valuation Section -->
+          <div class="valuation-metrics-section">
+            <h3 class="section-title">Key Metrics & Valuation
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Key performance and valuation metrics. Green indicates attractive values, red indicates elevated values. Hover over any metric for details.</span>
+              </span>
+            </h3>
+            {% if snapshot.context.quote_type == 'ETF' %}
+            <div class="etf-notice">
+              <span class="etf-badge">ETF</span>
+              <span>This is an Exchange-Traded Fund. Corporate metrics like P/E, PEG, ROE, and Enterprise Value don't apply to ETFs since they hold baskets of securities rather than operating as companies.</span>
+            </div>
+            {% endif %}
+            <div class="valuation-metrics-grid">
+              <!-- Price & Size -->
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Price</span>
+                <span class="val-value">${{ analysis.fundamentals.valuation.current_price | round(2) if analysis.fundamentals.valuation.current_price else "N/A" }}</span>
+                <span class="cell-tooltip">Current stock price per share.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">P/E</span>
-                <span class="qs-value">{{ analysis.fundamentals.valuation.pe_ratio | round(1) if analysis.fundamentals.valuation.pe_ratio else "N/A" }}</span>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Market Cap</span>
+                <span class="val-value">
+                  {% if analysis.fundamentals.valuation.market_cap %}
+                    {% if analysis.fundamentals.valuation.market_cap >= 1e12 %}
+                      ${{ (analysis.fundamentals.valuation.market_cap / 1e12) | round(2) }}T
+                    {% elif analysis.fundamentals.valuation.market_cap >= 1e9 %}
+                      ${{ (analysis.fundamentals.valuation.market_cap / 1e9) | round(1) }}B
+                    {% else %}
+                      ${{ (analysis.fundamentals.valuation.market_cap / 1e6) | round(0) }}M
+                    {% endif %}
+                  {% else %}N/A{% endif %}
+                </span>
+                <span class="cell-tooltip">Total market value of outstanding shares. Large cap >$10B, Mid cap $2-10B, Small cap <$2B.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">Revenue Growth</span>
-                <span class="qs-value {% if analysis.fundamentals.growth.revenue_growth and analysis.fundamentals.growth.revenue_growth > 0 %}positive{% elif analysis.fundamentals.growth.revenue_growth %}negative{% endif %}">
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Enterprise Value</span>
+                <span class="val-value">
+                  {% if analysis.fundamentals.valuation.enterprise_value %}
+                    {% if analysis.fundamentals.valuation.enterprise_value >= 1e12 %}
+                      ${{ (analysis.fundamentals.valuation.enterprise_value / 1e12) | round(2) }}T
+                    {% elif analysis.fundamentals.valuation.enterprise_value >= 1e9 %}
+                      ${{ (analysis.fundamentals.valuation.enterprise_value / 1e9) | round(1) }}B
+                    {% else %}
+                      ${{ (analysis.fundamentals.valuation.enterprise_value / 1e6) | round(0) }}M
+                    {% endif %}
+                  {% else %}N/A{% endif %}
+                </span>
+                <span class="cell-tooltip">Market cap + debt - cash. Represents the theoretical takeover price of the company.</span>
+              </div>
+              <!-- Valuation Ratios -->
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Trailing P/E</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.pe_ratio and analysis.fundamentals.valuation.pe_ratio > 30 %}elevated{% elif analysis.fundamentals.valuation.pe_ratio and analysis.fundamentals.valuation.pe_ratio < 15 %}attractive{% endif %}">
+                  {{ analysis.fundamentals.valuation.pe_ratio | round(1) if analysis.fundamentals.valuation.pe_ratio else "N/A" }}
+                </span>
+                <span class="cell-tooltip">Price divided by trailing 12-month earnings. Lower may indicate undervaluation. S&P 500 average ~20-25.</span>
+              </div>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Forward P/E</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.forward_pe and analysis.fundamentals.valuation.forward_pe > 25 %}elevated{% elif analysis.fundamentals.valuation.forward_pe and analysis.fundamentals.valuation.forward_pe < 15 %}attractive{% endif %}">
+                  {{ analysis.fundamentals.valuation.forward_pe | round(1) if analysis.fundamentals.valuation.forward_pe else "N/A" }}
+                </span>
+                <span class="cell-tooltip">Price divided by estimated future earnings. Lower than trailing P/E suggests expected earnings growth.</span>
+              </div>
+              <div class="val-metric peg-highlight has-tooltip">
+                <span class="val-label">PEG Ratio</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.peg_ratio and analysis.fundamentals.valuation.peg_ratio < 1 %}attractive{% elif analysis.fundamentals.valuation.peg_ratio and analysis.fundamentals.valuation.peg_ratio > 2 %}elevated{% endif %}">
+                  {{ analysis.fundamentals.valuation.peg_ratio | round(2) if analysis.fundamentals.valuation.peg_ratio else "N/A" }}
+                </span>
+                <span class="cell-tooltip">P/E divided by earnings growth rate. PEG < 1 suggests undervaluation relative to growth. PEG > 2 may indicate overvaluation.</span>
+              </div>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Price / Sales</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.price_to_sales and analysis.fundamentals.valuation.price_to_sales > 10 %}elevated{% elif analysis.fundamentals.valuation.price_to_sales and analysis.fundamentals.valuation.price_to_sales < 2 %}attractive{% endif %}">
+                  {{ analysis.fundamentals.valuation.price_to_sales | round(2) if analysis.fundamentals.valuation.price_to_sales else "N/A" }}
+                </span>
+                <span class="cell-tooltip">Market cap divided by revenue. Useful for comparing companies regardless of profitability. Lower is generally better.</span>
+              </div>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Price / Book</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.price_to_book and analysis.fundamentals.valuation.price_to_book > 5 %}elevated{% elif analysis.fundamentals.valuation.price_to_book and analysis.fundamentals.valuation.price_to_book < 1 %}attractive{% endif %}">
+                  {{ analysis.fundamentals.valuation.price_to_book | round(2) if analysis.fundamentals.valuation.price_to_book else "N/A" }}
+                </span>
+                <span class="cell-tooltip">Market cap divided by book value. P/B < 1 may indicate undervaluation. Asset-heavy industries typically have lower P/B.</span>
+              </div>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">EV / Revenue</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.ev_to_revenue and analysis.fundamentals.valuation.ev_to_revenue > 10 %}elevated{% elif analysis.fundamentals.valuation.ev_to_revenue and analysis.fundamentals.valuation.ev_to_revenue < 2 %}attractive{% endif %}">
+                  {{ analysis.fundamentals.valuation.ev_to_revenue | round(2) if analysis.fundamentals.valuation.ev_to_revenue else "N/A" }}
+                </span>
+                <span class="cell-tooltip">Enterprise value divided by revenue. Accounts for debt in valuation. Useful for comparing companies with different capital structures.</span>
+              </div>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">EV / EBITDA</span>
+                <span class="val-value {% if analysis.fundamentals.valuation.ev_to_ebitda and analysis.fundamentals.valuation.ev_to_ebitda > 20 %}elevated{% elif analysis.fundamentals.valuation.ev_to_ebitda and analysis.fundamentals.valuation.ev_to_ebitda < 10 %}attractive{% endif %}">
+                  {{ analysis.fundamentals.valuation.ev_to_ebitda | round(1) if analysis.fundamentals.valuation.ev_to_ebitda else "N/A" }}
+                </span>
+                <span class="cell-tooltip">Enterprise value divided by EBITDA. Often used in M&A. EV/EBITDA < 10 often considered attractive.</span>
+              </div>
+              <!-- Performance Metrics -->
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Revenue Growth</span>
+                <span class="val-value {% if analysis.fundamentals.growth.revenue_growth and analysis.fundamentals.growth.revenue_growth > 0 %}attractive{% elif analysis.fundamentals.growth.revenue_growth and analysis.fundamentals.growth.revenue_growth < 0 %}elevated{% endif %}">
                   {{ (analysis.fundamentals.growth.revenue_growth * 100) | round(1) if analysis.fundamentals.growth.revenue_growth else "N/A" }}{% if analysis.fundamentals.growth.revenue_growth %}%{% endif %}
                 </span>
+                <span class="cell-tooltip">Year-over-year revenue growth rate. Positive growth indicates expanding business.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">ROE</span>
-                <span class="qs-value">{{ (analysis.fundamentals.profitability.roe * 100) | round(1) if analysis.fundamentals.profitability.roe else "N/A" }}{% if analysis.fundamentals.profitability.roe %}%{% endif %}</span>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">ROE</span>
+                <span class="val-value {% if analysis.fundamentals.profitability.roe and analysis.fundamentals.profitability.roe > 0.15 %}attractive{% elif analysis.fundamentals.profitability.roe and analysis.fundamentals.profitability.roe < 0.05 %}elevated{% endif %}">
+                  {{ (analysis.fundamentals.profitability.roe * 100) | round(1) if analysis.fundamentals.profitability.roe else "N/A" }}{% if analysis.fundamentals.profitability.roe %}%{% endif %}
+                </span>
+                <span class="cell-tooltip">Return on Equity. Measures profitability vs shareholder equity. Above 15% is generally strong.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">Beta</span>
-                <span class="qs-value">{{ analysis.risk.beta | round(2) if analysis.risk.beta else "N/A" }}</span>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Beta</span>
+                <span class="val-value">{{ analysis.risk.beta | round(2) if analysis.risk.beta else "N/A" }}</span>
+                <span class="cell-tooltip">Volatility vs market. Beta > 1 = more volatile than market. Beta < 1 = less volatile.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">52W Return</span>
-                <span class="qs-value {% if analysis.price.total_return and analysis.price.total_return > 0 %}positive{% elif analysis.price.total_return %}negative{% endif %}">
+              <div class="val-metric has-tooltip">
+                <span class="val-label">52W Return</span>
+                <span class="val-value {% if analysis.price.total_return and analysis.price.total_return > 0 %}attractive{% elif analysis.price.total_return and analysis.price.total_return < 0 %}elevated{% endif %}">
                   {{ (analysis.price.total_return * 100) | round(1) if analysis.price.total_return else "N/A" }}{% if analysis.price.total_return %}%{% endif %}
                 </span>
+                <span class="cell-tooltip">Total return over the past 52 weeks including dividends.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">Analyst Target</span>
-                <span class="qs-value">${{ analysis.fundamentals.valuation.target_mean_price | round(2) if analysis.fundamentals.valuation.target_mean_price else "N/A" }}</span>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Analyst Target</span>
+                <span class="val-value">${{ analysis.fundamentals.valuation.target_mean_price | round(2) if analysis.fundamentals.valuation.target_mean_price else "N/A" }}</span>
+                <span class="cell-tooltip">Average analyst 12-month price target. Compare to current price for upside/downside potential.</span>
               </div>
-              <div class="quick-stat">
-                <span class="qs-label">News Sentiment</span>
-                <span class="qs-value {{ analysis.sentiment.overall_sentiment | lower }}">{{ analysis.sentiment.overall_sentiment }}</span>
+              <div class="val-metric has-tooltip">
+                <span class="val-label">Sentiment</span>
+                <span class="val-value {{ analysis.sentiment.overall_sentiment | lower }}">{{ analysis.sentiment.overall_sentiment }}</span>
+                <span class="cell-tooltip">Overall news sentiment based on recent headlines. Bullish, Neutral, or Bearish.</span>
               </div>
             </div>
           </div>
 
           <!-- Price Charts -->
+          <div class="chart-section-header">
+            <h3 class="section-title">Price & Performance Charts</h3>
+            <div class="chart-period-selector" data-charts="price,relative">
+              <button class="period-btn" data-period="1d">1D</button>
+              <button class="period-btn" data-period="5d">5D</button>
+              <button class="period-btn" data-period="1m">1M</button>
+              <button class="period-btn" data-period="6m">6M</button>
+              <button class="period-btn active" data-period="1y">1Y</button>
+              <button class="period-btn" data-period="5y">5Y</button>
+              <button class="period-btn" data-period="max">Max</button>
+            </div>
+          </div>
           <div class="chart-grid">
-            <div class="chart-card">
-              {{ charts.price | safe }}
+            <div class="chart-card" id="chart-price">
+              <div class="chart-content">
+                {{ charts.price | safe }}
+              </div>
               {% if chart_insights.price %}
               <div class="chart-notes">
                 <p class="chart-summary">{{ chart_insights.price.summary }}</p>
@@ -282,14 +420,78 @@
               </div>
               {% endif %}
             </div>
-            <div class="chart-card">
-              {{ charts.relative | safe }}
+            <div class="chart-card" id="chart-relative">
+              <div class="chart-content">
+                {{ charts.relative | safe }}
+              </div>
               {% if chart_insights.relative %}
               <div class="chart-notes">
                 <p class="chart-summary">{{ chart_insights.relative.summary }}</p>
                 <p class="{{ chart_insights.relative.signal_class }}">{{ chart_insights.relative.impact }}</p>
               </div>
               {% endif %}
+            </div>
+          </div>
+
+          <!-- Major Indices Comparison Section -->
+          <div class="chart-section-header">
+            <h3 class="section-title">Major Indices Comparison
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Compare the stock's performance against major market indices (S&P 500, NASDAQ, DOW). This helps understand if the stock is outperforming or underperforming the broader market. Beta measures volatility relative to the market.</span>
+              </span>
+            </h3>
+            <div class="chart-period-selector" data-charts="indices">
+              <button class="period-btn" data-period="1d">1D</button>
+              <button class="period-btn" data-period="5d">5D</button>
+              <button class="period-btn" data-period="1m">1M</button>
+              <button class="period-btn" data-period="6m">6M</button>
+              <button class="period-btn active" data-period="1y">1Y</button>
+              <button class="period-btn" data-period="5y">5Y</button>
+              <button class="period-btn" data-period="max">Max</button>
+            </div>
+          </div>
+          
+          <!-- Beta Metrics -->
+          <div class="indices-metrics">
+            <div class="beta-card">
+              <span class="beta-label">Beta vs S&P 500
+                <span class="info-icon">ⓘ
+                  <span class="info-tooltip">Beta measures volatility relative to the market. Beta > 1 means more volatile than the market; Beta < 1 means less volatile. A beta of 1.5 means the stock typically moves 1.5x the market's movement.</span>
+                </span>
+              </span>
+              <span class="beta-value {% if analysis.risk.beta %}{% if analysis.risk.beta > 1.5 %}high-beta{% elif analysis.risk.beta < 0.8 %}low-beta{% endif %}{% endif %}">
+                {{ "%.2f"|format(analysis.risk.beta) if analysis.risk.beta else "N/A" }}
+              </span>
+            </div>
+            <div class="beta-interpretation">
+              {% if analysis.risk.beta %}
+                {% if analysis.risk.beta > 1.5 %}
+                  <span class="interpretation high">High volatility — moves significantly more than the market</span>
+                {% elif analysis.risk.beta > 1.0 %}
+                  <span class="interpretation moderate">Above average volatility — tends to amplify market moves</span>
+                {% elif analysis.risk.beta > 0.8 %}
+                  <span class="interpretation neutral">Market-like volatility — moves roughly with the market</span>
+                {% else %}
+                  <span class="interpretation low">Low volatility — more stable than the market</span>
+                {% endif %}
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="chart-card chart-with-info" id="chart-indices">
+            <span class="chart-info-icon">ⓘ
+              <span class="chart-info-tooltip">
+                <strong>Indices Comparison</strong><br><br>
+                Shows percentage return of the stock vs major indices over the selected period.<br><br>
+                • <strong>Above indices</strong> = Outperforming the market<br>
+                • <strong>Below indices</strong> = Underperforming the market<br><br>
+                The stock line (blue) vs S&P 500 (green), NASDAQ (purple), DOW (orange).
+              </span>
+            </span>
+            <div class="chart-content" id="indices-chart-content">
+              <div style="padding: 60px; text-align: center; color: #64748b;">
+                <p>Click a time period above to load comparison chart</p>
+              </div>
             </div>
           </div>
         </section>
@@ -326,15 +528,29 @@
           </div>
 
           <!-- Charts -->
+          <div class="chart-section-header">
+            <span></span>
+            <div class="chart-period-selector" data-charts="volume,volatility">
+              <button class="period-btn" data-period="1d">1D</button>
+              <button class="period-btn" data-period="5d">5D</button>
+              <button class="period-btn" data-period="1m">1M</button>
+              <button class="period-btn" data-period="6m">6M</button>
+              <button class="period-btn active" data-period="1y">1Y</button>
+              <button class="period-btn" data-period="5y">5Y</button>
+              <button class="period-btn" data-period="max">Max</button>
+            </div>
+          </div>
           <div class="chart-grid">
-            <div class="chart-card chart-with-info">
+            <div class="chart-card chart-with-info" id="chart-volume">
               <span class="chart-info-icon">ⓘ
                 <span class="chart-info-tooltip">
                   <strong>Volume Analysis</strong><br><br>
                   Shows daily trading volume (shares traded). High volume on up days confirms bullish moves; high volume on down days confirms bearish pressure. Volume spikes often precede significant price moves.
                 </span>
               </span>
-              {{ charts.volume | safe }}
+              <div class="chart-content">
+                {{ charts.volume | safe }}
+              </div>
               {% if chart_insights.volume %}
               <div class="chart-notes">
                 <p class="chart-summary">{{ chart_insights.volume.summary }}</p>
@@ -342,20 +558,42 @@
               </div>
               {% endif %}
             </div>
-            <div class="chart-card chart-with-info">
+            <div class="chart-card chart-with-info" id="chart-volatility">
               <span class="chart-info-icon">ⓘ
                 <span class="chart-info-tooltip">
                   <strong>Rolling Volatility (20-day)</strong><br><br>
                   Measures price fluctuation intensity. Higher volatility means larger price swings and more risk. Volatility often increases before major moves and decreases during consolidation.
                 </span>
               </span>
-              {{ charts.volatility | safe }}
+              <div class="chart-content">
+                {{ charts.volatility | safe }}
+              </div>
               {% if chart_insights.volatility %}
               <div class="chart-notes">
                 <p class="chart-summary">{{ chart_insights.volatility.summary }}</p>
                 <p class="{{ chart_insights.volatility.signal_class }}">{{ chart_insights.volatility.impact }}</p>
               </div>
               {% endif %}
+            </div>
+          </div>
+
+          <!-- Options Analysis Section -->
+          <div class="options-section">
+            <h3 class="section-title">Options Analysis
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">
+                  Options data can indicate market sentiment.<br><br>
+                  • <strong>Put/Call Ratio < 0.7</strong> = Bullish (more call buying)<br>
+                  • <strong>Put/Call Ratio > 1.0</strong> = Bearish (more put buying)<br>
+                  • <strong>High Volume</strong> at specific strikes may indicate expected price targets
+                </span>
+              </span>
+            </h3>
+            
+            <div class="options-content" id="options-content">
+              <div style="padding: 40px; text-align: center; color: #64748b;">
+                <p>Loading options data...</p>
+              </div>
             </div>
           </div>
 
@@ -528,8 +766,24 @@
         </section>
 
         <section class="tab-panel" id="fundamentals">
+          {% if snapshot.context.quote_type == 'ETF' %}
+          <div class="etf-notice">
+            <span class="etf-badge">ETF</span>
+            <span>Fundamental metrics are not available for ETFs. These funds track indices or baskets of securities rather than operating as traditional companies with financial statements.</span>
+          </div>
+          {% endif %}
           <!-- Financial Trends Chart -->
-          <div class="chart-card chart-with-info">
+          <div class="chart-section-header">
+            <h3 class="section-title">Financial Trends</h3>
+            <div class="chart-period-selector" data-charts="fundamentals">
+              <button class="period-btn" data-period="1y">1Y</button>
+              <button class="period-btn" data-period="3y">3Y</button>
+              <button class="period-btn active" data-period="5y">5Y</button>
+              <button class="period-btn" data-period="10y">10Y</button>
+              <button class="period-btn" data-period="max">Max</button>
+            </div>
+          </div>
+          <div class="chart-card chart-with-info" id="chart-fundamentals">
             <span class="chart-info-icon">ⓘ
               <span class="chart-info-tooltip">
                 <strong>Financial Trends</strong><br><br>
@@ -540,7 +794,9 @@
                 Divergence between revenue and income may indicate margin pressure.
               </span>
             </span>
-            {{ charts.fundamentals | safe }}
+            <div class="chart-content">
+              {{ charts.fundamentals | safe }}
+            </div>
             {% if chart_insights.fundamentals %}
             <div class="chart-notes">
               <p class="chart-summary">{{ chart_insights.fundamentals.summary }}</p>
@@ -695,6 +951,12 @@
         </section>
 
         <section class="tab-panel" id="valuation">
+          {% if snapshot.context.quote_type == 'ETF' %}
+          <div class="etf-notice">
+            <span class="etf-badge">ETF</span>
+            <span>Traditional valuation metrics don't apply to ETFs. To evaluate an ETF, consider its expense ratio, tracking error, liquidity, and the underlying index it tracks.</span>
+          </div>
+          {% endif %}
           <!-- Valuation Assessment Box -->
           {% if analysis.fundamentals.valuation.assessment %}
           {% set assess = analysis.fundamentals.valuation.assessment %}
@@ -928,6 +1190,12 @@
         </section>
 
         <section class="tab-panel" id="peers">
+          {% if snapshot.context.quote_type == 'ETF' %}
+          <div class="etf-notice">
+            <span class="etf-badge">ETF</span>
+            <span>Peer comparison is not applicable for ETFs. Consider comparing to similar ETFs tracking the same index or sector (e.g., SPY vs VOO vs IVV for S&P 500 exposure).</span>
+          </div>
+          {% else %}
           <div class="peers-header">
             <div class="sector-info">
               <p class="label">Sector</p>
@@ -942,7 +1210,9 @@
               <strong>{{ snapshot.context.benchmark }}</strong>
             </div>
           </div>
+          {% endif %}
           
+          {% if snapshot.context.quote_type != 'ETF' %}
           <div class="chart-card">
             {{ charts.peers | safe }}
             {% if chart_insights.peers %}
@@ -1127,6 +1397,87 @@
           {% else %}
           <p class="no-data">No peer comparison data available.</p>
           {% endif %}
+          {% endif %} {# End ETF check #}
+        </section>
+
+        <section class="tab-panel" id="market">
+          <!-- Market Sentiment Header -->
+          <div class="market-header">
+            <h2>Market Overview</h2>
+            <p class="market-subtitle">Overall market conditions, sector performance, and macro sentiment</p>
+            <button class="refresh-btn" id="refresh-market-sentiment" title="Refresh market data">
+              ↻ Refresh Data
+            </button>
+          </div>
+
+          <!-- Sentiment Gauge & Indicators Row -->
+          <div class="market-sentiment-grid">
+            <!-- Sentiment Gauge -->
+            <div class="sentiment-gauge-card" id="sentiment-gauge-container">
+              <div style="padding: 60px; text-align: center; color: #64748b;">
+                <p>Loading market sentiment...</p>
+              </div>
+            </div>
+            
+            <!-- VIX & Market Indicators -->
+            <div class="market-indicators-card" id="market-indicators">
+              <h4>Market Indicators
+                <span class="info-icon">ⓘ
+                  <span class="info-tooltip">Key market indicators including VIX (fear index) and major indices performance. VIX below 15 indicates complacency, above 25 indicates elevated fear.</span>
+                </span>
+              </h4>
+              <div class="indicator-grid">
+                <div class="indicator-item" id="vix-indicator">
+                  <span class="indicator-label">VIX (Fear Index)</span>
+                  <span class="indicator-value">--</span>
+                  <span class="indicator-change">--</span>
+                </div>
+                <div class="indicator-item" id="spy-indicator">
+                  <span class="indicator-label">S&P 500</span>
+                  <span class="indicator-value">--</span>
+                  <span class="indicator-change">--</span>
+                </div>
+                <div class="indicator-item" id="qqq-indicator">
+                  <span class="indicator-label">NASDAQ</span>
+                  <span class="indicator-value">--</span>
+                  <span class="indicator-change">--</span>
+                </div>
+                <div class="indicator-item" id="dia-indicator">
+                  <span class="indicator-label">Dow Jones</span>
+                  <span class="indicator-value">--</span>
+                  <span class="indicator-change">--</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sector Performance -->
+          <div class="sector-performance-card">
+            <h4>Sector Performance (1 Week)
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Performance of major sector ETFs over the past week. Green indicates positive performance, red indicates negative. Sector rotation can signal where money is flowing in the market.</span>
+              </span>
+            </h4>
+            <div class="chart-content" id="sector-chart-container">
+              <div style="padding: 40px; text-align: center; color: #64748b;">
+                <p>Loading sector data...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Market Headlines -->
+          <div class="market-news-card">
+            <h4>Market Headlines
+              <span class="info-icon">ⓘ
+                <span class="info-tooltip">Recent market news and headlines that may be driving overall sentiment. Colored by sentiment: green = positive, red = negative, gray = neutral.</span>
+              </span>
+            </h4>
+            <div class="market-news-list" id="market-news-list">
+              <div style="padding: 20px; text-align: center; color: #64748b;">
+                <p>Loading market news...</p>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section class="tab-panel" id="news">
@@ -1551,6 +1902,554 @@
           targetTab.click();
         }
       }
+
+      // ============================================
+      // TICKER AUTOCOMPLETE FUNCTIONALITY
+      // ============================================
+      
+      (function() {
+        const tickerInput = document.getElementById('ticker');
+        const tickerDropdown = document.getElementById('ticker-dropdown');
+        
+        if (!tickerInput || !tickerDropdown) return;
+        
+        let searchTimeout = null;
+        let currentResults = [];
+        let highlightedIndex = -1;
+        
+        // Debounced search function
+        function performSearch(query) {
+          if (!query || query.length < 1) {
+            hideDropdown();
+            return;
+          }
+          
+          fetch(`/api/search?q=${encodeURIComponent(query)}`)
+            .then(response => response.json())
+            .then(data => {
+              currentResults = data.results || [];
+              highlightedIndex = -1;
+              renderResults(currentResults, query);
+            })
+            .catch(error => {
+              console.error('Search error:', error);
+              hideDropdown();
+            });
+        }
+        
+        // Render search results
+        function renderResults(results, query) {
+          if (results.length === 0) {
+            hideDropdown();
+            return;
+          }
+          
+          let html = results.map((result, index) => `
+            <div class="ticker-result${index === highlightedIndex ? ' highlighted' : ''}" 
+                 data-ticker="${result.ticker}" 
+                 data-index="${index}">
+              <span class="ticker-result-symbol">${highlightMatch(result.ticker, query)}</span>
+              <span class="ticker-result-name">${highlightMatch(result.name, query)}</span>
+            </div>
+          `).join('');
+          
+          tickerDropdown.innerHTML = html;
+          tickerDropdown.classList.add('active');
+          
+          // Add click handlers to results
+          tickerDropdown.querySelectorAll('.ticker-result').forEach(el => {
+            el.addEventListener('click', (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              selectResult(el.dataset.ticker);
+            });
+          });
+        }
+        
+        // Highlight matching text
+        function highlightMatch(text, query) {
+          if (!query) return text;
+          const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+          return text.replace(regex, '<strong>$1</strong>');
+        }
+        
+        function escapeRegex(string) {
+          return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+        
+        // Select a result
+        function selectResult(ticker) {
+          if (!ticker) return;
+          tickerInput.value = ticker;
+          hideDropdown();
+          tickerInput.focus();
+        }
+        
+        // Hide dropdown
+        function hideDropdown() {
+          tickerDropdown.classList.remove('active');
+          currentResults = [];
+          highlightedIndex = -1;
+        }
+        
+        // Update highlighted result
+        function updateHighlight() {
+          const results = tickerDropdown.querySelectorAll('.ticker-result');
+          results.forEach((el, index) => {
+            if (index === highlightedIndex) {
+              el.classList.add('highlighted');
+              el.scrollIntoView({ block: 'nearest' });
+            } else {
+              el.classList.remove('highlighted');
+            }
+          });
+        }
+        
+        // Event: Input change
+        tickerInput.addEventListener('input', (e) => {
+          const query = e.target.value.trim();
+          
+          if (searchTimeout) {
+            clearTimeout(searchTimeout);
+          }
+          
+          searchTimeout = setTimeout(() => {
+            performSearch(query);
+          }, 150);
+        });
+        
+        // Event: Keyboard navigation
+        tickerInput.addEventListener('keydown', (e) => {
+          if (!tickerDropdown.classList.contains('active')) {
+            return; // Let form submit normally
+          }
+          
+          switch (e.key) {
+            case 'ArrowDown':
+              e.preventDefault();
+              if (highlightedIndex < currentResults.length - 1) {
+                highlightedIndex++;
+                updateHighlight();
+              }
+              break;
+              
+            case 'ArrowUp':
+              e.preventDefault();
+              if (highlightedIndex > 0) {
+                highlightedIndex--;
+                updateHighlight();
+              }
+              break;
+              
+            case 'Enter':
+              if (highlightedIndex >= 0 && currentResults[highlightedIndex]) {
+                e.preventDefault();
+                selectResult(currentResults[highlightedIndex].ticker);
+              }
+              // Otherwise let form submit normally
+              break;
+              
+            case 'Escape':
+              hideDropdown();
+              break;
+              
+            case 'Tab':
+              hideDropdown();
+              break;
+          }
+        });
+        
+        // Event: Focus
+        tickerInput.addEventListener('focus', () => {
+          const query = tickerInput.value.trim();
+          if (query) {
+            performSearch(query);
+          }
+        });
+        
+        // Event: Click outside to close
+        document.addEventListener('click', (e) => {
+          if (!e.target.closest('.ticker-field')) {
+            hideDropdown();
+          }
+        });
+      })();
+
+      // ============================================
+      // CHART PERIOD SELECTOR FUNCTIONALITY
+      // ============================================
+      
+      (function() {
+        const ticker = '{{ ticker or "" }}';
+        if (!ticker) return;
+        
+        // Get saved period from localStorage or default to 1y
+        const STORAGE_KEY = 'chart_period_preference';
+        
+        // Initialize all period selectors
+        document.querySelectorAll('.chart-period-selector').forEach(selector => {
+          const chartTypes = selector.dataset.charts.split(',');
+          
+          // Add click handlers
+          selector.querySelectorAll('.period-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const period = btn.dataset.period;
+              
+              // Update UI for this selector
+              selector.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+              btn.classList.add('active');
+              btn.classList.add('loading');
+              
+              // Save preference
+              localStorage.setItem(STORAGE_KEY, period);
+              
+              // Update each chart for this selector
+              for (const chartType of chartTypes) {
+                await updateChart(chartType, period);
+              }
+              
+              btn.classList.remove('loading');
+            });
+          });
+        });
+        
+        async function updateChart(chartType, period) {
+          const chartContainer = document.getElementById(`chart-${chartType}`);
+          if (!chartContainer) {
+            console.warn(`Chart container not found: chart-${chartType}`);
+            return;
+          }
+          
+          const chartContent = chartContainer.querySelector('.chart-content');
+          if (!chartContent) {
+            console.warn(`Chart content not found in: chart-${chartType}`);
+            return;
+          }
+          
+          chartContent.classList.add('loading');
+          
+          try {
+            const url = `/api/chart-data?ticker=${encodeURIComponent(ticker)}&period=${period}&type=${chartType}`;
+            console.log('Fetching chart:', url);
+            
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if (data.error) {
+              console.error('Chart error:', data.error);
+              chartContent.innerHTML = `<div style="padding: 40px; text-align: center; color: #64748b;">Unable to load chart: ${data.error}</div>`;
+              return;
+            }
+            
+            if (!data.html) {
+              console.error('No chart HTML in response');
+              chartContent.innerHTML = `<div style="padding: 40px; text-align: center; color: #64748b;">No chart data available</div>`;
+              return;
+            }
+            
+            // Update chart HTML
+            chartContent.innerHTML = data.html;
+            
+            // Execute any scripts in the new HTML (Plotly needs this)
+            const scripts = chartContent.querySelectorAll('script');
+            scripts.forEach(oldScript => {
+              const newScript = document.createElement('script');
+              // Copy attributes
+              Array.from(oldScript.attributes).forEach(attr => {
+                newScript.setAttribute(attr.name, attr.value);
+              });
+              // Copy content
+              newScript.textContent = oldScript.textContent;
+              oldScript.parentNode.replaceChild(newScript, oldScript);
+            });
+            
+          } catch (error) {
+            console.error('Error updating chart:', error);
+            chartContent.innerHTML = `<div style="padding: 40px; text-align: center; color: #dc2626;">Error loading chart. Please try again.</div>`;
+          } finally {
+            chartContent.classList.remove('loading');
+          }
+        }
+      })();
+
+      // ============================================
+      // OPTIONS DATA FUNCTIONALITY
+      // ============================================
+      
+      (function() {
+        const ticker = '{{ ticker or "" }}';
+        if (!ticker) return;
+        
+        async function loadOptionsData() {
+          const container = document.getElementById('options-content');
+          if (!container) return;
+          
+          try {
+            const response = await fetch(`/api/options-data?ticker=${encodeURIComponent(ticker)}`);
+            const data = await response.json();
+            
+            if (!data.available) {
+              container.innerHTML = `<div style="padding: 40px; text-align: center; color: #64748b;">${data.message || 'No options data available for this ticker'}</div>`;
+              return;
+            }
+            
+            const opts = data.data;
+            const vol = opts.volume || {};
+            const oi = opts.open_interest || {};
+            
+            container.innerHTML = `
+              <div class="options-grid">
+                <!-- Put/Call Ratios -->
+                <div class="options-metrics">
+                  <div class="pcr-card">
+                    <div class="pcr-header">
+                      <span class="pcr-label">Put/Call Ratio (Volume)</span>
+                      <span class="pcr-sentiment ${vol.sentiment_color || 'neutral'}">${vol.sentiment || 'Unknown'}</span>
+                    </div>
+                    <div class="pcr-value">${vol.pcr || 'N/A'}</div>
+                    <div class="pcr-details">
+                      <span>Calls: ${(vol.calls || 0).toLocaleString()}</span>
+                      <span>Puts: ${(vol.puts || 0).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div class="pcr-card">
+                    <div class="pcr-header">
+                      <span class="pcr-label">Put/Call Ratio (Open Interest)</span>
+                      <span class="pcr-sentiment ${oi.sentiment_color || 'neutral'}">${oi.sentiment || 'Unknown'}</span>
+                    </div>
+                    <div class="pcr-value">${oi.pcr || 'N/A'}</div>
+                    <div class="pcr-details">
+                      <span>Calls: ${(oi.calls || 0).toLocaleString()}</span>
+                      <span>Puts: ${(oi.puts || 0).toLocaleString()}</span>
+                    </div>
+                  </div>
+                  ${opts.implied_move && opts.implied_move.percent ? `
+                  <div class="pcr-card implied-move">
+                    <div class="pcr-header">
+                      <span class="pcr-label">Implied Move (${opts.expiration})</span>
+                    </div>
+                    <div class="pcr-value">±${opts.implied_move.percent}%</div>
+                    <div class="pcr-details">
+                      <span>$${opts.implied_move.dollars} expected move</span>
+                    </div>
+                  </div>
+                  ` : ''}
+                </div>
+                
+                <!-- Charts -->
+                <div class="options-charts">
+                  <div class="options-chart" id="options-volume-chart">${data.volume_chart_html || ''}</div>
+                  <div class="options-chart" id="options-oi-chart">${data.oi_chart_html || ''}</div>
+                </div>
+                
+                <!-- Most Active Strikes -->
+                ${opts.top_call_strikes && opts.top_call_strikes.length > 0 ? `
+                <div class="active-strikes">
+                  <h4>Most Active Strikes</h4>
+                  <div class="strikes-grid">
+                    <div class="strikes-column">
+                      <h5 class="calls-header">Top Calls</h5>
+                      ${opts.top_call_strikes.map(s => `
+                        <div class="strike-item call">
+                          <span class="strike-price">$${s.strike}</span>
+                          <span class="strike-vol">Vol: ${s.volume.toLocaleString()}</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                    <div class="strikes-column">
+                      <h5 class="puts-header">Top Puts</h5>
+                      ${(opts.top_put_strikes || []).map(s => `
+                        <div class="strike-item put">
+                          <span class="strike-price">$${s.strike}</span>
+                          <span class="strike-vol">Vol: ${s.volume.toLocaleString()}</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                  </div>
+                </div>
+                ` : ''}
+              </div>
+              <p class="options-expiration">Expiration: ${opts.expiration} (${opts.expirations_available} expirations available)</p>
+            `;
+            
+            // Execute scripts for charts
+            executeScripts(container);
+            
+          } catch (error) {
+            console.error('Error loading options data:', error);
+            container.innerHTML = `<div style="padding: 40px; text-align: center; color: #dc2626;">Error loading options data</div>`;
+          }
+        }
+        
+        function executeScripts(container) {
+          const scripts = container.querySelectorAll('script');
+          scripts.forEach(oldScript => {
+            const newScript = document.createElement('script');
+            Array.from(oldScript.attributes).forEach(attr => {
+              newScript.setAttribute(attr.name, attr.value);
+            });
+            newScript.textContent = oldScript.textContent;
+            oldScript.parentNode.replaceChild(newScript, oldScript);
+          });
+        }
+        
+        // Load options data
+        loadOptionsData();
+      })();
+
+      // ============================================
+      // MARKET SENTIMENT FUNCTIONALITY
+      // ============================================
+      
+      (function() {
+        async function loadMarketSentiment() {
+          const gaugeContainer = document.getElementById('sentiment-gauge-container');
+          const sectorContainer = document.getElementById('sector-chart-container');
+          const newsContainer = document.getElementById('market-news-list');
+          const indicators = document.getElementById('market-indicators');
+          
+          try {
+            const response = await fetch('/api/market-sentiment');
+            const data = await response.json();
+            
+            if (data.error) {
+              console.error('Market sentiment error:', data.error);
+              if (gaugeContainer) {
+                gaugeContainer.innerHTML = `<div style="padding: 40px; text-align: center; color: #64748b;">Unable to load market sentiment</div>`;
+              }
+              return;
+            }
+            
+            // Update gauge
+            if (gaugeContainer && data.gauge_html) {
+              gaugeContainer.innerHTML = data.gauge_html;
+              executeScripts(gaugeContainer);
+            }
+            
+            // Update sector chart
+            if (sectorContainer && data.sector_chart_html) {
+              sectorContainer.innerHTML = data.sector_chart_html;
+              executeScripts(sectorContainer);
+            }
+            
+            // Update market indicators
+            if (indicators && data.sentiment) {
+              const sentiment = data.sentiment;
+              
+              // VIX
+              if (sentiment.vix) {
+                const vixEl = document.getElementById('vix-indicator');
+                if (vixEl) {
+                  const vixValue = vixEl.querySelector('.indicator-value');
+                  const vixChange = vixEl.querySelector('.indicator-change');
+                  if (vixValue) vixValue.textContent = sentiment.vix.current || '--';
+                  if (vixChange) {
+                    vixChange.textContent = sentiment.vix.level || '--';
+                    vixChange.className = 'indicator-change ' + 
+                      (sentiment.vix.current > 25 ? 'negative' : sentiment.vix.current < 15 ? 'positive' : 'neutral');
+                  }
+                }
+              }
+              
+              // Indices
+              const indices = sentiment.indices || {};
+              
+              // S&P 500
+              if (indices['S&P 500']) {
+                updateIndicator('spy-indicator', indices['S&P 500'].weekly_change);
+              }
+              
+              // NASDAQ
+              if (indices['NASDAQ 100']) {
+                updateIndicator('qqq-indicator', indices['NASDAQ 100'].weekly_change);
+              }
+              
+              // Dow Jones
+              if (indices['Dow Jones']) {
+                updateIndicator('dia-indicator', indices['Dow Jones'].weekly_change);
+              }
+            }
+            
+            // Update news
+            if (newsContainer && data.sentiment && data.sentiment.news) {
+              const news = data.sentiment.news;
+              if (news.length > 0) {
+                newsContainer.innerHTML = news.map(item => `
+                  <div class="market-news-item ${item.sentiment}">
+                    <a href="${item.link}" target="_blank" rel="noopener">${item.title}</a>
+                    <span class="news-meta">${item.publisher} · ${item.published}</span>
+                  </div>
+                `).join('');
+              } else {
+                newsContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #64748b;">No recent market news</div>';
+              }
+            }
+            
+          } catch (error) {
+            console.error('Error loading market sentiment:', error);
+            if (gaugeContainer) {
+              gaugeContainer.innerHTML = `<div style="padding: 40px; text-align: center; color: #dc2626;">Error loading market data</div>`;
+            }
+          }
+        }
+        
+        function updateIndicator(id, change) {
+          const el = document.getElementById(id);
+          if (el && change !== undefined) {
+            const changeEl = el.querySelector('.indicator-change');
+            if (changeEl) {
+              changeEl.textContent = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
+              changeEl.className = 'indicator-change ' + (change >= 0 ? 'positive' : 'negative');
+            }
+          }
+        }
+        
+        function executeScripts(container) {
+          const scripts = container.querySelectorAll('script');
+          scripts.forEach(oldScript => {
+            const newScript = document.createElement('script');
+            Array.from(oldScript.attributes).forEach(attr => {
+              newScript.setAttribute(attr.name, attr.value);
+            });
+            newScript.textContent = oldScript.textContent;
+            oldScript.parentNode.replaceChild(newScript, oldScript);
+          });
+        }
+        
+        let marketDataLoaded = false;
+        
+        // Load when Market tab is shown
+        function loadMarketDataOnTabShow() {
+          if (!marketDataLoaded) {
+            loadMarketSentiment();
+            marketDataLoaded = true;
+          }
+        }
+        
+        // Listen for tab clicks
+        document.querySelectorAll('.tab[data-target="market"]').forEach(tab => {
+          tab.addEventListener('click', loadMarketDataOnTabShow);
+        });
+        
+        // Also check if market tab is already visible (e.g., direct link)
+        const marketPanel = document.getElementById('market');
+        if (marketPanel && marketPanel.classList.contains('active')) {
+          loadMarketDataOnTabShow();
+        }
+        
+        // Refresh button
+        const refreshBtn = document.getElementById('refresh-market-sentiment');
+        if (refreshBtn) {
+          refreshBtn.addEventListener('click', () => {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'Loading...';
+            loadMarketSentiment().finally(() => {
+              refreshBtn.disabled = false;
+              refreshBtn.textContent = '↻ Refresh Data';
+            });
+          });
+        }
+      })();
     </script>
   </body>
 </html>

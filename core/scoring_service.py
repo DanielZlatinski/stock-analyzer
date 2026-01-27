@@ -2,21 +2,25 @@
 Comprehensive Scoring Service for Investment Recommendations
 
 This module calculates a final investment score based on multiple factors:
-- Technical Analysis (20%): Price trends, momentum indicators, RSI, MACD
-- Fundamentals (25%): Quality metrics (ROE, margins) + Growth metrics
+- Technical Analysis (18%): Price trends, momentum indicators, RSI, MACD
+- Fundamentals (22%): Quality metrics (ROE, margins) + Growth metrics
 - Valuation (20%): P/E, Forward P/E, PEG, EV/EBITDA relative attractiveness
-- Risk (15%): Volatility, beta, max drawdown - lower is better
-- Sentiment (10%): News sentiment analysis
-- Momentum (10%): Recent price performance
+- Momentum (12%): Recent price performance
+- Risk (12%): Volatility, beta, max drawdown - lower is better
+- Market (8%): Market sentiment and sector performance
+- Sentiment (8%): News sentiment analysis
 
 Final Score Interpretation:
-- 70-100: INVEST - Strong buy signal with favorable metrics
-- 45-69: WATCH - Hold/Monitor, mixed signals or fair value
-- 0-44: AVOID - Unfavorable risk/reward or deteriorating fundamentals
+- 58-100: INVEST - Strong buy signal with favorable metrics
+- 42-57: WATCH - Hold/Monitor, mixed signals or fair value
+- 0-41: AVOID - Unfavorable risk/reward or deteriorating fundamentals
+
+Special Handling:
+- ETFs: Only scored on Technical, Risk, Momentum, Market factors (no fundamentals/valuation)
 """
 
 from core.analysis_models import Recommendation
-from core.scoring_config import SCORE_WEIGHTS, THRESHOLDS
+from core.scoring_config import SCORE_WEIGHTS, THRESHOLDS, ETF_SCORE_WEIGHTS, TIMING_THRESHOLDS
 
 
 def _scale(value, min_val, max_val, invert=False):
@@ -50,10 +54,18 @@ def _signal_from_score(score):
 
 
 class ScoringService:
-    def score(self, analysis, completeness_percent):
+    def score(self, analysis, completeness_percent, quote_type=None, sector=None):
         """
         Calculate comprehensive investment score with detailed breakdowns.
+        
+        Args:
+            analysis: AnalysisPack with all analysis data
+            completeness_percent: Data quality percentage
+            quote_type: 'EQUITY', 'ETF', 'MUTUALFUND', etc.
+            sector: Company sector for market scoring (e.g., 'Technology')
         """
+        is_etf = quote_type == "ETF"
+        weights = ETF_SCORE_WEIGHTS if is_etf else SCORE_WEIGHTS
         # ============================================================
         # TECHNICAL SCORE (20% weight)
         # Based on: trend direction, RSI positioning, MACD signals
@@ -247,6 +259,77 @@ class ScoringService:
         }
         
         # ============================================================
+        # MARKET & SECTOR SCORE (8% weight)
+        # Overall market conditions and sector performance
+        # ============================================================
+        market_score = 50  # Default neutral
+        market_explanation = "Market data not available."
+        sector_name = sector  # Use passed sector parameter
+        
+        # Sector to ETF mapping
+        sector_etf_map = {
+            "Technology": "XLK",
+            "Financial Services": "XLF",
+            "Healthcare": "XLV",
+            "Energy": "XLE",
+            "Industrials": "XLI",
+            "Consumer Cyclical": "XLY",
+            "Consumer Defensive": "XLP",
+            "Utilities": "XLU",
+            "Basic Materials": "XLB",
+            "Real Estate": "XLRE",
+            "Communication Services": "XLC",
+        }
+        
+        try:
+            from core.analytics.market_sentiment import analyze_market_sentiment, get_sector_performance
+            
+            # Get market sentiment
+            market_data = analyze_market_sentiment()
+            market_sentiment_score = market_data.get("score", 0)
+            
+            # Scale market sentiment from -100/+100 to 0-100
+            market_component = (market_sentiment_score + 100) / 2
+            
+            # Get sector performance
+            sectors = get_sector_performance()
+            sector_component = 50  # Default
+            
+            # Match company's sector to sector ETF performance
+            if sector_name and sector_name in sector_etf_map:
+                target_etf = sector_etf_map[sector_name]
+                for sector_data in sectors:
+                    if sector_data.get("ticker") == target_etf:
+                        sector_change = sector_data.get("weekly_change", 0)
+                        # Scale sector change: -5% to +5% -> 0 to 100
+                        sector_component = _scale(sector_change, -5, 5) or 50
+                        break
+            else:
+                # If no sector match, use average of all sectors
+                all_changes = [s.get("weekly_change", 0) for s in sectors if s.get("weekly_change") is not None]
+                if all_changes:
+                    avg_change = sum(all_changes) / len(all_changes)
+                    sector_component = _scale(avg_change, -5, 5) or 50
+            
+            # Combine market sentiment (60%) and sector (40%)
+            market_score = (market_component * 0.6) + (sector_component * 0.4)
+            
+            sentiment_label = market_data.get("sentiment", "Neutral")
+            market_explanation = f"Market is {sentiment_label}. "
+            if sector_name:
+                market_explanation += f"Sector ({sector_name}) showing recent momentum."
+            
+        except Exception as e:
+            market_explanation = "Unable to analyze market conditions."
+        
+        market_details = {
+            "score": market_score,
+            "signal": _signal_from_score(market_score),
+            "sector": sector_name or "N/A",
+            "explanation": market_explanation,
+        }
+        
+        # ============================================================
         # PEER COMPARISON ADJUSTMENT
         # ============================================================
         peer_adjustment = 0
@@ -265,26 +348,50 @@ class ScoringService:
         # ============================================================
         scores = {
             "technical": technical_score or 50,
-            "fundamental": fundamental_score or 50,
-            "valuation": valuation_score or 50,
+            "fundamental": fundamental_score or 50 if not is_etf else 50,
+            "valuation": valuation_score or 50 if not is_etf else 50,
             "risk": risk_score or 50,
             "sentiment": sentiment_score or 50,
             "momentum": momentum_score or 50,
+            "market": market_score or 50,
         }
         
         weighted_total = 0
-        for key, weight in SCORE_WEIGHTS.items():
+        for key, weight in weights.items():  # Use dynamic weights (ETF vs equity)
             weighted_total += scores[key] * weight
         
-        # Apply peer adjustment (max ±5 points)
-        weighted_total = max(0, min(100, weighted_total + peer_adjustment))
+        # Apply peer adjustment (max ±5 points) - only for equities
+        if not is_etf:
+            weighted_total = max(0, min(100, weighted_total + peer_adjustment))
+        else:
+            weighted_total = max(0, min(100, weighted_total))
+        
+        # ============================================================
+        # CALCULATE TIMING SIGNAL (Entry Point Quality)
+        # ============================================================
+        timing_score = self._calculate_timing_signal(analysis)
+        if timing_score >= TIMING_THRESHOLDS["excellent"]:
+            timing_signal = "Excellent"
+            timing_description = "Strong entry point. Technical indicators suggest favorable timing for new positions."
+        elif timing_score >= TIMING_THRESHOLDS["good"]:
+            timing_signal = "Good"
+            timing_description = "Reasonable entry point. Some technical support for initiating positions."
+        elif timing_score >= TIMING_THRESHOLDS["fair"]:
+            timing_signal = "Fair"
+            timing_description = "Neutral timing. Consider scaling in gradually or waiting for pullback."
+        else:
+            timing_signal = "Poor"
+            timing_description = "Unfavorable entry. Price may be extended. Consider waiting for better levels."
         
         # ============================================================
         # DETERMINE RATING
         # ============================================================
         if weighted_total >= THRESHOLDS["invest"]:
             rating = "INVEST"
-            rating_description = "Strong buy signal. Favorable metrics across multiple factors suggest attractive risk-adjusted return potential."
+            if timing_signal in ["Excellent", "Good"]:
+                rating_description = "Strong buy signal with favorable entry timing. Consider initiating or adding to positions."
+            else:
+                rating_description = "Fundamentally attractive but timing is suboptimal. Consider scaling in on pullbacks."
         elif weighted_total >= THRESHOLDS["watch"]:
             rating = "WATCH"
             rating_description = "Hold or monitor. Mixed signals or fair valuation. Wait for better entry point or improving fundamentals."
@@ -296,11 +403,11 @@ class ScoringService:
         # BUILD DETAILED OUTPUT
         # ============================================================
         confidence = self._calculate_confidence(weighted_total, completeness_percent, scores)
-        positives, risks = self._build_reasoning(scores, technical_details, fundamental_details, valuation_details, risk_details, sentiment_details, momentum_details)
+        positives, risks = self._build_reasoning(scores, technical_details, fundamental_details, valuation_details, risk_details, sentiment_details, momentum_details, market_details)
         triggers = self._build_triggers(scores, valuation_details, technical_details, sentiment_details)
         
-        # Contributions for waterfall chart
-        contributions = {key: scores[key] * SCORE_WEIGHTS[key] for key in scores}
+        # Contributions for waterfall chart (use dynamic weights)
+        contributions = {key: scores[key] * weights[key] for key in scores}
         
         # Factor details for Overview display
         factor_details = {
@@ -310,7 +417,13 @@ class ScoringService:
             "risk": risk_details,
             "sentiment": sentiment_details,
             "momentum": momentum_details,
+            "market": market_details,
         }
+        
+        # For ETFs, update fundamental/valuation explanations
+        if is_etf:
+            factor_details["fundamental"]["explanation"] = "Not applicable for ETFs."
+            factor_details["valuation"]["explanation"] = "Not applicable for ETFs."
         
         return Recommendation(
             rating=rating,
@@ -323,6 +436,10 @@ class ScoringService:
             rating_description=rating_description,
             factor_details=factor_details,
             factor_scores=scores,
+            timing_signal=timing_signal,
+            timing_score=round(timing_score, 1),
+            timing_description=timing_description,
+            is_etf=is_etf,
         )
     
     def _explain_technical(self, trend, rsi, macd, macd_signal):
@@ -431,7 +548,7 @@ class ScoringService:
             return "Medium"
         return "Low"
     
-    def _build_reasoning(self, scores, tech, fund, val, risk, sent, mom):
+    def _build_reasoning(self, scores, tech, fund, val, risk, sent, mom, market=None):
         positives = []
         risks = []
         
@@ -471,6 +588,12 @@ class ScoringService:
         elif scores["momentum"] <= 40:
             risks.append(f"Weak momentum: {mom['explanation']}")
         
+        # Market conditions
+        if scores.get("market", 50) >= 60:
+            positives.append("Favorable market/sector conditions supporting the stock")
+        elif scores.get("market", 50) <= 40:
+            risks.append("Challenging market/sector headwinds")
+        
         return positives[:5], risks[:5]
     
     def _build_triggers(self, scores, val, tech, sent):
@@ -488,5 +611,91 @@ class ScoringService:
             triggers.append("Earnings or revenue growth accelerates, margins expand")
         if scores["momentum"] < 50:
             triggers.append("Price momentum turns positive with higher highs and higher lows")
+        if scores.get("market", 50) < 50:
+            triggers.append("Market/sector conditions improve with broader rally")
         
         return triggers[:4]
+    
+    def _calculate_timing_signal(self, analysis):
+        """
+        Calculate timing score for entry point quality.
+        
+        Considers:
+        - RSI position (oversold = better entry)
+        - MACD crossover direction
+        - Price relative to moving averages
+        - Recent momentum
+        - Volatility regime
+        
+        Returns score 0-100 where higher = better entry point.
+        """
+        timing_components = []
+        
+        # RSI positioning (0-100, oversold is better for entry)
+        rsi = analysis.technicals.rsi_14
+        if rsi is not None:
+            if rsi < 30:
+                timing_components.append(90)  # Oversold - excellent entry
+            elif rsi < 40:
+                timing_components.append(75)  # Near oversold - good entry
+            elif rsi > 70:
+                timing_components.append(20)  # Overbought - poor entry
+            elif rsi > 60:
+                timing_components.append(35)  # Near overbought - suboptimal
+            else:
+                timing_components.append(55)  # Neutral
+        
+        # MACD momentum (bullish crossover = good timing)
+        macd = analysis.technicals.macd
+        macd_signal = analysis.technicals.macd_signal
+        if macd is not None and macd_signal is not None:
+            macd_diff = macd - macd_signal
+            # Positive and rising MACD is good
+            if macd_diff > 0:
+                timing_components.append(70)  # Bullish momentum
+            else:
+                timing_components.append(35)  # Bearish momentum
+        
+        # Price vs moving averages (below = potential value)
+        sma_50 = analysis.technicals.ma_50
+        sma_200 = analysis.technicals.ma_200
+        current_price = analysis.price.current if hasattr(analysis.price, 'current') else None
+        
+        if sma_50 and current_price:
+            price_to_sma50 = (current_price / sma_50 - 1) * 100  # % from 50 SMA
+            # Below 50 SMA but not too far = good entry
+            if -10 < price_to_sma50 < -2:
+                timing_components.append(75)  # Good pullback entry
+            elif price_to_sma50 > 10:
+                timing_components.append(30)  # Extended above - risky entry
+            elif price_to_sma50 < -15:
+                timing_components.append(40)  # Too far below - could be in downtrend
+            else:
+                timing_components.append(55)  # Near average
+        
+        # Recent momentum (short-term pullback in uptrend = good entry)
+        rolling_1m = analysis.price.rolling_returns.get("1m")
+        rolling_3m = analysis.price.rolling_returns.get("3m")
+        
+        if rolling_1m is not None and rolling_3m is not None:
+            # Positive 3m but slight 1m pullback = good entry in uptrend
+            if rolling_3m > 0.05 and -0.05 < rolling_1m < 0.02:
+                timing_components.append(80)  # Pullback in uptrend
+            elif rolling_1m > 0.15:
+                timing_components.append(30)  # Extended short-term
+            elif rolling_1m < -0.15:
+                timing_components.append(35)  # Sharp selloff - catching knife
+            else:
+                timing_components.append(50)
+        
+        # Volatility regime (lower volatility = calmer entry)
+        volatility = analysis.risk.get("volatility")
+        if volatility is not None:
+            if volatility < 0.20:
+                timing_components.append(70)  # Low vol - stable entry
+            elif volatility > 0.40:
+                timing_components.append(35)  # High vol - uncertain
+            else:
+                timing_components.append(50)
+        
+        return _avg(timing_components) if timing_components else 50

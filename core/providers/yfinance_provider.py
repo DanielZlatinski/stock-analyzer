@@ -166,6 +166,7 @@ class YFinanceProvider(DataProvider):
         currency = info.get("currency") or "USD"
         peers = info.get("similarTickers") or []
         benchmark = SECTOR_ETF_MAP.get(sector, DEFAULT_BENCHMARK)
+        quote_type = info.get("quoteType")  # EQUITY, ETF, MUTUALFUND, INDEX, etc.
         return TickerContext(
             ticker=ticker,
             company_name=company_name,
@@ -175,6 +176,7 @@ class YFinanceProvider(DataProvider):
             currency=currency,
             peers=peers,
             benchmark=benchmark,
+            quote_type=quote_type,
         )
 
     def get_price_history(self, ticker, start, end, interval):

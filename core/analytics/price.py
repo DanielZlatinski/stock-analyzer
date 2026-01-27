@@ -22,6 +22,7 @@ def build_price_analytics(price_history, benchmark_history=None):
             beta=None,
             correlation=None,
             rolling_returns={key: None for key in ROLLING_WINDOWS},
+            current=None,
         )
 
     df = pd.DataFrame([point.__dict__ for point in price_history])
@@ -29,6 +30,7 @@ def build_price_analytics(price_history, benchmark_history=None):
     df = df.set_index("date").sort_index()
     returns = df["close"].pct_change().dropna()
 
+    current_price = df["close"].iloc[-1] if len(df) > 0 else None
     total_return = (df["close"].iloc[-1] / df["close"].iloc[0]) - 1
     annualized_volatility = (
         returns.std() * math.sqrt(252) if not returns.empty else None
@@ -67,4 +69,5 @@ def build_price_analytics(price_history, benchmark_history=None):
         beta=beta,
         correlation=correlation,
         rolling_returns=rolling_returns,
+        current=current_price,
     )

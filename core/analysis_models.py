@@ -10,6 +10,7 @@ class PriceAnalytics:
     beta: Optional[float]
     correlation: Optional[float]
     rolling_returns: Dict[str, Optional[float]]
+    current: Optional[float] = None  # Current price for timing calculations
 
 
 @dataclass
@@ -85,3 +86,7 @@ class Recommendation:
     rating_description: str = ""
     factor_details: Dict[str, Dict] = None
     factor_scores: Dict[str, float] = None
+    timing_signal: str = "Fair"  # Excellent, Good, Fair, Poor
+    timing_score: float = 50.0
+    timing_description: str = ""
+    is_etf: bool = False

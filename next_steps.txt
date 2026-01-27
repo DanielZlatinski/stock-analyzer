@@ -1,0 +1,136 @@
+================================================================================
+                         AI PROJECT - NEXT STEPS
+                      Features to Add Before Publishing
+================================================================================
+
+--------------------------------------------------------------------------------
+1. SEARCH & NAVIGATION
+--------------------------------------------------------------------------------
+- [x] Search by Stock Ticker or Company Name
+- [x] Global search accessible from all pages
+- [x] Auto-complete suggestions as user types
+- [ ] Recent searches history (optional enhancement)
+
+--------------------------------------------------------------------------------
+2. CHART CONTROLS
+--------------------------------------------------------------------------------
+- [x] Ability to change time period on all charts
+      Periods: 1D, 5D, 1M, 6M, 1Y, 5Y, Max
+- [x] Charts should update dynamically based on selected period
+- [x] Consistent time period selector UI across all chart components
+- [x] Remember user's last selected period preference (localStorage)
+
+--------------------------------------------------------------------------------
+3. VALUATION METRICS (Front Page)
+--------------------------------------------------------------------------------
+Add the following metrics to the front cover / overview page:
+
+- [x] Market Cap
+- [x] Enterprise Value
+- [x] Trailing P/E
+- [x] Forward P/E
+- [x] PEG Ratio (5yr expected)
+- [x] Price / Sales
+- [x] Price / Book
+- [x] Enterprise Value / Revenue
+- [x] Enterprise Value / EBITDA
+
+--------------------------------------------------------------------------------
+4. PEG RATIO
+--------------------------------------------------------------------------------
+- [x] Add PEG Ratio (5yr expected) prominently on the front page
+- [x] Ensure calculation source and assumptions are consistent
+- [x] Display data source attribution (via tooltips)
+
+================================================================================
+                           UI / UX ENHANCEMENTS
+================================================================================
+
+--------------------------------------------------------------------------------
+5. HOVER INFO TOOLTIPS
+--------------------------------------------------------------------------------
+Add hover tooltips for:
+- [x] Every metric
+- [x] Every chart
+- [x] Every subpage element
+
+Similar to the info icon in the corner already implemented on some components.
+
+Tooltips should explain:
+- [x] What the metric means
+- [x] How it's calculated
+- [x] Why it matters
+
+================================================================================
+                       MARKET & SENTIMENT ANALYSIS
+================================================================================
+
+--------------------------------------------------------------------------------
+6. OPTIONS TRENDS
+--------------------------------------------------------------------------------
+Add options trends analysis based on:
+- [x] Option chain data
+- [x] Call vs Put volume
+- [x] Open interest
+- [x] Highlight bullish / bearish bias
+- [x] Put/Call ratio visualization
+
+--------------------------------------------------------------------------------
+7. MARKET SENTIMENT (Macro)
+--------------------------------------------------------------------------------
+Show overall market sentiment based on:
+- [x] Global news and events
+      (e.g. Trump tariffs, market corrections, geopolitical conflicts)
+- [x] Classify sentiment (Bullish / Neutral / Bearish)
+- [x] Visual sentiment indicator/gauge
+- [x] Key headlines driving sentiment
+
+--------------------------------------------------------------------------------
+8. SECTOR SENTIMENT
+--------------------------------------------------------------------------------
+- [x] Separate sector-level sentiment
+- [x] Example: NVIDIA → Semiconductor / AI sector
+- [x] Compare company vs sector performance
+- [x] Sector rotation indicators
+- [x] Relative strength within sector
+
+--------------------------------------------------------------------------------
+9. MAJOR INDICES COMPARISON
+--------------------------------------------------------------------------------
+Track and display major indices sentiment:
+- [x] Example: NVIDIA vs S&P 500
+- [x] Show relative performance
+- [x] Index trend direction
+- [x] Comparison charts (overlay or side-by-side)
+- [x] Beta calculation vs indices
+
+================================================================================
+                          IMPLEMENTATION PRIORITY
+================================================================================
+
+Phase 1 - Core Functionality:
+  - Search & Navigation (#1)
+  - Valuation Metrics (#3, #4)
+
+Phase 2 - Enhanced Charts:
+  - Chart Controls (#2)
+  - Major Indices Comparison (#9)
+
+Phase 3 - Sentiment & Analysis:
+  - Market Sentiment (#7)
+  - Sector Sentiment (#8)
+  - Options Trends (#6)
+
+Phase 4 - Polish:
+  - Hover Info Tooltips (#5)
+  - Final UI/UX refinements
+
+================================================================================
+                              NOTES
+================================================================================
+- All features should maintain responsive design
+- Consider API rate limits for real-time data
+- Cache frequently accessed data where appropriate
+- Ensure consistent styling with existing components
+
+================================================================================

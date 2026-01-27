@@ -34,6 +34,11 @@ class AnalysisService:
             "volatility": price.annualized_volatility,
             "max_drawdown": price.max_drawdown,
         }
+        
+        # Get quote type and sector from context for proper scoring
+        quote_type = getattr(snapshot.context, 'quote_type', None)
+        sector = snapshot.context.sector
+        
         recommendation = ScoringService().score(
             analysis=AnalysisPack(
                 price=price,
@@ -46,6 +51,8 @@ class AnalysisService:
                 recommendation=None,
             ),
             completeness_percent=snapshot.completeness.overall_percent,
+            quote_type=quote_type,
+            sector=sector,
         )
 
         return AnalysisPack(

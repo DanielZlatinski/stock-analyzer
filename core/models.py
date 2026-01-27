@@ -13,6 +13,7 @@ class TickerContext:
     currency: Optional[str]
     peers: List[str]
     benchmark: str
+    quote_type: Optional[str] = None  # EQUITY, ETF, MUTUALFUND, INDEX, etc.
 
 
 @dataclass
