@@ -31,3 +31,8 @@ Thumbs.db
 
 # Logs
 *.log
+firebase-debug.log
+firebase-debug.*.log
+
+# Firebase
+.firebase/
